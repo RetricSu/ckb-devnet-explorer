@@ -10,7 +10,18 @@ export type Resolved = {
 };
 
 export class Resolver {
-  constructor(private known: Map<string, KnownScript>) {}
+  // A script points at its code in one of two ways (RFC 0022): with a data hash type its
+  // code_hash is the hash of the code cell's data, with "type" it's the hash of the code
+  // cell's own type script. Indexing both lets us recognise the code cells themselves.
+  private byDataHash = new Map<string, KnownScript>();
+  private byTypeHash = new Map<string, KnownScript>();
+
+  constructor(private known: Map<string, KnownScript>) {
+    for (const [k, v] of known) {
+      const [codeHash, hashType] = k.split(":");
+      (hashType === "type" ? this.byTypeHash : this.byDataHash).set(codeHash, v);
+    }
+  }
 
   resolve(script: RpcScript): Resolved {
     const hit = this.known.get(key(script.code_hash, script.hash_type));
@@ -23,6 +34,14 @@ export class Resolver {
       if (inner) resolved.inner = this.resolve(inner);
     }
     return resolved;
+  }
+
+  codeCell(dataHash: string | null, typeHash: string | null): { script: KnownScript; matchedBy: "data hash" | "type hash" } | null {
+    const byData = dataHash && this.byDataHash.get(dataHash.toLowerCase());
+    if (byData) return { script: byData, matchedBy: "data hash" };
+    const byType = typeHash && this.byTypeHash.get(typeHash.toLowerCase());
+    if (byType) return { script: byType, matchedBy: "type hash" };
+    return null;
   }
 
   describe(script: RpcScript | null): string {

@@ -8,12 +8,17 @@
   },
   "scripts": {
     "scan": "tsx src/cli.ts",
-    "serve": "tsx src/cli.ts serve"
+    "serve": "tsx src/cli.ts serve",
+    "check": "tsc"
   },
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^26.6.4",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@ckb-ccc/core": "^1.23.0",
+    "@ckb-ccc/spore": "^1.6.15"
   }
 }

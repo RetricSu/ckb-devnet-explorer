@@ -70,32 +70,102 @@ function dataPreview(cell) {
   return `<p class="data-preview">${text}0x${shown}</p>`;
 }
 
+const shortAddr = (a) => `${a.slice(0, 12)}…${a.slice(-8)}`;
+
+// What the cell holds, read according to the standard its type script implements.
+function decodedLine(d) {
+  if (!d) return "";
+  const line = (badge, body) => `<div class="decoded k-${d.kind}"><span class="badge">${badge}</span><span>${body}</span></div>`;
+  switch (d.kind) {
+    case "code":
+      return line("Contract code", `${esc(d.name)} <span class="src">(${esc(d.source)})</span>
+        <span class="via">Matched by ${d.matchedBy}: scripts named ${esc(d.name)} load their code from this cell.</span>`);
+    case "dao-deposit":
+      return line("DAO deposit", `Locked in Nervos DAO. Data is 8 zero bytes, so no withdrawal has been requested yet.`);
+    case "dao-withdrawing":
+      return line("DAO withdrawal", `Withdrawal requested. Deposited at <a href="#/block/${d.depositBlock}">block ${d.depositBlock}</a>.`);
+    case "udt":
+      return line(d.standard, `<b class="amount">${BigInt(d.amount).toLocaleString("en-US")}</b> units
+        <span class="via">Token id (owner lock hash) <span class="mono" title="${d.owner}">${short(d.owner)}</span>${d.extraBytes ? ` · ${d.extraBytes} extra bytes after the amount` : ""}</span>`);
+    case "spore":
+      return line("Spore", `${esc(d.contentType)} · ${d.contentLength} bytes
+        ${d.text !== undefined ? `<span class="spore-text">${esc(d.text)}</span>` : ""}
+        ${d.clusterId ? `<span class="via">In cluster <span class="mono">${short(d.clusterId)}</span></span>` : ""}`);
+    case "cluster":
+      return line("Cluster", `<b>${esc(d.name)}</b><span class="via">${esc(d.description)}</span>`);
+    case "type-id":
+      return line("Type ID", `<span class="mono" title="${d.id}">${short(d.id)}</span><span class="via">A stable id that survives upgrades of this cell's contents.</span>`);
+    case "invalid":
+      return line(`Bad ${esc(d.standard)}`, esc(d.reason));
+  }
+  return "";
+}
+
+function statusLine(s) {
+  if (!s) return "";
+  if (s.state === "live") return `<span class="state live" title="Not consumed by any transaction yet">Live</span>`;
+  if (s.state === "pending") return `<span class="state">Pending</span>`;
+  return s.by
+    ? `<a class="state spent" href="#/tx/${s.by}" title="Consumed by ${s.by}">Spent in <span class="mono">${short(s.by)}</span></a>`
+    : `<span class="state spent">Spent</span>`;
+}
+
+function rawRow(label, value) {
+  return `<dt>${label}</dt><dd>${value}</dd>`;
+}
+
+function rawScript(label, s) {
+  if (!s) return "";
+  return rawRow(`${label} code hash`, s.code_hash) + rawRow(`${label} hash type`, s.hash_type) +
+    rawRow(`${label} args`, s.args === "0x" ? "0x (empty)" : s.args) + rawRow(`${label} script hash`, s.hash);
+}
+
 function cellCard(cell) {
-  if (cell.unresolved) return `<div class="cell"><p class="caption">${esc(cell.unresolved)}</p></div>`;
+  if (cell.unresolved) return `<div class="cell cell-note"><p class="caption">${esc(cell.unresolved)}</p></div>`;
   const op = cell.outPoint;
   return `
     <article class="cell">
       <div class="cell-top">
         <span class="ckb">${formatCkb(cell.capacity)} <small>CKB</small></span>
-        ${op ? `<a class="outpoint" href="#/tx/${op.txHash}" title="${op.txHash}:${op.index}">${short(op.txHash)}:${op.index}</a>` : ""}
+        <span class="cell-ids">
+          ${op ? `<a class="outpoint" href="#/tx/${op.txHash}" title="Created in ${op.txHash}, output ${op.index}">${short(op.txHash)}:${op.index}</a>` : ""}
+          ${statusLine(cell.status)}
+        </span>
       </div>
       ${capacityBar(cell)}
+      ${decodedLine(cell.decoded)}
       <div class="scripts">
-        <div class="script lock"><span class="k">Lock</span><div>${scriptName(cell.lock)}</div></div>
+        <div class="script lock"><span class="k">Lock</span><div>${scriptName(cell.lock)}<span class="via mono" title="${cell.address}">${shortAddr(cell.address)}</span></div></div>
         ${cell.type ? `<div class="script type"><span class="k">Type</span><div>${scriptName(cell.type)}</div></div>` : ""}
-        ${cell.dataLength ? `<div class="script data"><span class="k">Data</span><div>${cell.dataLength} bytes${dataPreview(cell)}</div></div>` : ""}
+        ${cell.dataLength && !["code", "spore", "cluster"].includes(cell.decoded?.kind) ? `<div class="script data"><span class="k">Data</span><div>${cell.dataLength} bytes${dataPreview(cell)}</div></div>` : ""}
       </div>
+      <details class="raw">
+        <summary>Raw fields</summary>
+        <dl>
+          ${rawRow("Address", cell.address)}
+          ${rawScript("Lock", cell.lock)}
+          ${rawScript("Type", cell.type)}
+          ${rawRow("Data", cell.dataLength ? `${cell.dataLength} bytes${cell.dataLength > 256 ? " (first 256 shown)" : ""}<br>${cell.dataPreview}` : "0x (empty)")}
+          ${cell.dataHash ? rawRow("Data hash", cell.dataHash) : ""}
+        </dl>
+      </details>
     </article>`;
 }
 
 async function showTx(hash) {
   const tx = await api(`/api/tx/${hash}`);
+  const facts = [
+    tx.blockNumber !== null ? `<a href="#/block/${tx.blockNumber}">Block ${tx.blockNumber}</a>` : "Not in a block yet",
+    esc(tx.status),
+    `${tx.inputs.length} in → ${tx.outputs.length} out`,
+    tx.fee !== null ? `<span title="Input capacity minus output capacity">fee ${formatCkb(tx.fee)} CKB</span>` : null,
+    tx.cycles !== null ? `<span title="CKB-VM cycles used by all scripts in this transaction">${tx.cycles.toLocaleString("en-US")} cycles</span>` : null,
+  ].filter(Boolean);
   $("#detail").innerHTML = `
     <div class="tx-head">
       <h2 class="eyebrow">Transaction</h2>
       <h1>${tx.hash}</h1>
-      <p>${tx.blockNumber !== null ? `<a href="#/block/${tx.blockNumber}">Block ${tx.blockNumber}</a>` : "Not in a block yet"} · ${esc(tx.status)}
-        · ${tx.inputs.length} in → ${tx.outputs.length} out</p>
+      <p>${facts.join(" · ")}</p>
     </div>
     <div class="flow">
       <div class="col"><h2 class="eyebrow">Consumed cells</h2>${tx.inputs.map(cellCard).join("")}</div>
@@ -109,7 +179,7 @@ async function showBlock(n) {
   $("#detail").innerHTML = `
     <div class="tx-head"><h2 class="eyebrow">Block ${b.number}</h2><h1>${b.hash}</h1></div>
     <ul class="block-list">${b.transactions.map((t) =>
-      `<li><a href="#/tx/${t.hash}">${t.hash}</a> <span class="caption">${t.cellbase ? "cellbase (block reward)" : `${t.outputs} outputs`}</span></li>`).join("")}</ul>`;
+      `<li><a href="#/tx/${t.hash}">${t.hash}</a> <span class="caption">${t.cellbase ? "cellbase (block reward)" : `${t.outputs} outputs${t.tags.length ? " · " + t.tags.map(esc).join(", ") : ""}`}</span></li>`).join("")}</ul>`;
 }
 
 let latest = [];
@@ -129,7 +199,8 @@ function renderFeed() {
   $("#feed").innerHTML = latest.length
     ? latest.map((t) => `<li><a href="#/tx/${t.hash}" aria-current="${t.hash === current}">
         <span class="num">#${t.blockNumber}</span><span class="hash">${short(t.hash)}</span>
-        <span class="meta">${t.outputs} output${t.outputs === 1 ? "" : "s"} · ${ago(t.timestamp)}</span></a></li>`).join("")
+        <span class="meta">${t.outputs} output${t.outputs === 1 ? "" : "s"} · ${ago(t.timestamp)}</span>
+        ${t.tags.length ? `<span class="tags">${t.tags.map((g) => `<span class="tag">${esc(g)}</span>`).join("")}</span>` : ""}</a></li>`).join("")
     : `<li class="caption">No transactions yet. Deploy a contract or send a transfer and it will show up here.</li>`;
 }
 
