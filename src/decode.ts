@@ -4,7 +4,7 @@ import type { RpcScript } from "./rpc.ts";
 import type { Resolved } from "./resolver.ts";
 
 export type Decoded =
-  | { kind: "code"; name: string; source: string; matchedBy: "data hash" | "type hash" }
+  | { kind: "code"; name: string; source: string; matchedBy: "data hash" | "type hash"; codeHash: string; hashType: string }
   | { kind: "dao-deposit" }
   | { kind: "dao-withdrawing"; depositBlock: number }
   | { kind: "udt"; standard: "sUDT" | "xUDT"; amount: string; owner: string; extraBytes: number }

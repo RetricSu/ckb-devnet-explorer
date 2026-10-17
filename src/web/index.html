@@ -4,24 +4,31 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ckb-devnet-explorer</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='4' width='14' height='8' rx='1.5' fill='%2314213d'/%3E%3Crect x='1' y='4' width='3' height='8' rx='1.5' fill='%231f8a70'/%3E%3Crect x='4' y='4' width='4' height='8' fill='%23c77f00'/%3E%3Crect x='8' y='4' width='4' height='8' fill='%236d4aff'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header class="bar">
-    <a class="mark" href="#/">ckb&#8209;devnet&#8209;explorer</a>
-    <span class="tip" id="tip" title="Latest block on your devnet">connecting…</span>
-    <form id="search" class="search" role="search">
-      <label class="visually-hidden" for="q">Transaction hash or block number</label>
-      <input id="q" name="q" placeholder="Tx hash or block number" autocomplete="off" spellcheck="false">
-    </form>
+  <a class="skip" href="#page">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="wordmark" href="#/" aria-label="ckb-devnet-explorer, overview">
+        <span class="wordmark-bar" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        ckb&#8209;devnet&#8209;explorer
+      </a>
+      <form id="search" class="search" role="search">
+        <label class="sr-only" for="q">Search the devnet</label>
+        <svg class="search-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input id="q" name="q" placeholder="Tx hash, block, address or script code hash" autocomplete="off" spellcheck="false">
+        <kbd aria-hidden="true">/</kbd>
+      </form>
+      <a class="node" id="node" href="#/" title="Your devnet node">
+        <span class="node-dot" aria-hidden="true"></span>
+        <span id="node-label">Connecting…</span>
+      </a>
+    </div>
   </header>
-  <main class="layout">
-    <aside class="feed" aria-label="Recent transactions">
-      <h2 class="eyebrow">Recent transactions</h2>
-      <ol id="feed"></ol>
-    </aside>
-    <section id="detail" class="detail" aria-live="polite"></section>
-  </main>
-  <script type="module" src="/app.js"></script>
+  <main id="page" class="page" tabindex="-1" aria-live="polite"></main>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="/js/app.js"></script>
 </body>
 </html>

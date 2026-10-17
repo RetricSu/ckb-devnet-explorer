@@ -19,10 +19,24 @@ would spend most of its life re-indexing.
 | `src/scripts.ts` | Loads script names: genesis scripts from `offckb system-scripts -o` (asked fresh every run, never cached on disk) and each project's `deployment/scripts.json`. |
 | `src/resolver.ts` | Turns a script (`code_hash` + `hash_type`) into a name. Also indexes code hashes the other way round to recognise the cells that *hold* the code. Looks through `ckb_js_vm` to the JS contract it runs. |
 | `src/decode.ts` | Reads cell data by the standard its type script implements: Nervos DAO, sUDT, xUDT, Spore, Spore cluster, Type ID. |
-| `src/explorer.ts` | Builds the views: recent transactions, a transaction with every input traced back to the cell it consumed, live/spent status of every output, fee, cycles. Caches blocks (they never change on a devnet) and drops the cache if the tip goes backwards. |
-| `src/server.ts` | `node:http` server: the JSON API and the static page. |
-| `src/web/` | The page. Plain HTML/CSS/JS, no build step, system fonts only, so it works offline. |
+| `src/explorer.ts` | Builds the views: overview, transaction (every input traced back to the cell it consumed, live/spent status of every output, fee, size, cycles, cell deps), block, address, script, and search. Caches blocks (they never change on a devnet) and drops the cache if the tip goes backwards. |
+| `src/server.ts` | `node:http` server: the JSON API below and the static files. |
+| `src/web/` | The page. Plain HTML/CSS/JS modules, no build step, system fonts only, so it works offline. `js/ui.js` has the shared pieces (capacity bar, cell row, script name), `js/pages.js` one function per page, `js/app.js` the hash router, search, node status and live refresh. |
 | `src/cli.ts` | `serve` starts the server; with no command it prints recent transactions to the terminal. |
+
+## API
+
+| Route | Returns |
+|-------|---------|
+| `GET /api/info` | RPC URL and tip block number (the top bar polls this). |
+| `GET /api/overview` | Tip, median block time, latest blocks and transactions, your scripts with deployed/not-deployed state. |
+| `GET /api/tx/:hash` | One transaction with resolved inputs, outputs, cell deps, fee, size, cycles. |
+| `GET /api/block/:numberOrHash` | Block header fields and its transactions. |
+| `GET /api/address/:address` | Balance, live cells, token balances, recent transactions. |
+| `GET /api/script/:codeHash/:hashType` | Name, code location, cells using it as lock or type. |
+| `GET /api/search?q=` | Which page a query points at. |
+
+Every page reads straight from the node, so a page is never stale; the overview re-renders every 5 seconds.
 
 ## How the hard parts work
 
@@ -45,6 +59,14 @@ transaction with an input pointing back at it.
 **Capacity bar.** Occupied bytes = 8 (capacity) + 33 + args for each script + data. 1 CKB pays for 1 byte, so
 the bar is the cell's capacity split into what it pays for. When free capacity is more than 3x the used bytes
 (change cells hold millions of CKB) the free part is cut short and marked with a break.
+
+**Is my script deployed?** A project's `scripts.json` survives `offckb clean`, the chain doesn't. The
+overview checks each project script's code cell with `get_live_cell`; if it's gone, the script is listed as
+"Not on this chain" instead of being silently named.
+
+**Transaction size and fee rate.** The RPC doesn't return a size, so the transaction is serialized with CCC
+(`Transaction.toBytes()`) and 4 bytes are added for its offset in the block, which is how the node counts it.
+Fee rate = fee × 1000 / size, in shannons per kB.
 
 ## Data formats
 

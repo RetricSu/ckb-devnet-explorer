@@ -36,6 +36,14 @@ export class Resolver {
     return resolved;
   }
 
+  all(): KnownScript[] {
+    return [...this.known.values()];
+  }
+
+  lookup(codeHash: string, hashType: string): KnownScript | null {
+    return this.known.get(key(codeHash, hashType)) ?? null;
+  }
+
   codeCell(dataHash: string | null, typeHash: string | null): { script: KnownScript; matchedBy: "data hash" | "type hash" } | null {
     const byData = dataHash && this.byDataHash.get(dataHash.toLowerCase());
     if (byData) return { script: byData, matchedBy: "data hash" };

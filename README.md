@@ -3,7 +3,18 @@
 A lightweight explorer for [OffCKB](https://github.com/ckb-devrel/offckb) devnets. No database, no indexer:
 it reads your devnet node directly and labels every script by name, including the ones your own projects deploy.
 
-![A spore transaction: the consumed cell on the left, the spore cell and change cell on the right](docs/screenshot.png)
+![A transaction minting 400 sUDT: fee, size and cycles at the top, then the consumed and created cells with their capacity bars](docs/screenshot.png)
+
+## Pages
+
+- **Overview**: latest transactions and blocks, refreshed as the devnet mines, plus a "Your scripts" panel
+  that says whether each script from your projects is actually deployed on this chain (it catches a stale
+  `scripts.json` after `offckb clean`).
+- **Transaction**: block, confirmations, fee and fee rate, size, cycles, cell deps, and every consumed and
+  created cell as an expandable row.
+- **Block**, **address** (balance, tokens, live cells, history) and **script** (where its code lives, which
+  cells use it as lock or type).
+- **Search** for a tx hash, block number or hash, address, or script code hash. Press `/` to jump to it.
 
 ## What it shows
 
@@ -15,7 +26,6 @@ it reads your devnet node directly and labels every script by name, including th
   its capacity field, lock, type, data and leftover capacity.
 - **Where cells come from and go.** Inputs are traced back to the transaction that created them; outputs show
   whether they're still live or which transaction spent them.
-- **Fee and cycles** for every transaction, and a live feed of recent transactions.
 
 How it works: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Roadmap: [docs/PLAN.md](docs/PLAN.md).
 
