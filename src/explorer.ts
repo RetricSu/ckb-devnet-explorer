@@ -193,7 +193,10 @@ export class Explorer {
         const provides = this.resolver.all().filter((s) => s.location?.txHash === txHash && s.location.index === index);
         return { txHash, index, depType: d.dep_type, provides: provides.map((s) => ({ name: s.name, source: s.source, codeHash: s.codeHash, hashType: s.hashType })) };
       }),
-      headerDeps: tx.header_deps,
+      headerDeps: await Promise.all(tx.header_deps.map(async (h) => {
+        const header = await rpc<{ number: string } | null>(this.url, "get_header", [h]);
+        return { hash: h, number: header ? num(header.number) : null };
+      })),
       inputs,
       outputs,
     };
@@ -286,11 +289,12 @@ export class Explorer {
     await this.tip();
     const known = this.resolver.lookup(codeHash, hashType);
     const script: RpcScript = { code_hash: codeHash.toLowerCase(), hash_type: hashType, args: "0x" };
+    const prefixes = this.resolver.usagePrefixes({ codeHash: script.code_hash, hashType });
     const [asType, asLock] = await Promise.all(
       (["type", "lock"] as const).map(async (role) => {
-        const page = await rpc<{ objects: IndexerCell[] }>(this.url, "get_cells", [
-          { script, script_type: role, script_search_mode: "prefix" }, "desc", "0x14"]);
-        return page.objects.map((c) => this.indexerCell(c, { state: "live" }));
+        const pages = await Promise.all(prefixes.map((prefix) => rpc<{ objects: IndexerCell[] }>(this.url, "get_cells", [
+          { script: prefix, script_type: role, script_search_mode: "prefix" }, "desc", "0x14"])));
+        return pages.flatMap((p) => p.objects).slice(0, 20).map((c) => this.indexerCell(c, { state: "live" }));
       }),
     );
     const location = known?.location ?? null;
@@ -335,9 +339,12 @@ export class Explorer {
 
   // Counts live cells that use a script, stopping at 100 so a busy lock doesn't stall the page.
   private async countCells(s: { codeHash: string; hashType: string }, role: "lock" | "type"): Promise<{ n: number; more: boolean }> {
-    const key: SearchKey = { script: { code_hash: s.codeHash, hash_type: s.hashType, args: "0x" }, script_type: role, script_search_mode: "prefix" };
-    const page = await rpc<{ objects: unknown[] }>(this.url, "get_cells", [{ ...key, with_data: false }, "asc", "0x64"]);
-    return { n: page.objects.length, more: page.objects.length === 100 };
+    const pages = await Promise.all(this.resolver.usagePrefixes(s).map((script) => {
+      const key: SearchKey = { script, script_type: role, script_search_mode: "prefix", with_data: false };
+      return rpc<{ objects: unknown[] }>(this.url, "get_cells", [key, "asc", "0x64"]);
+    }));
+    const n = pages.reduce((a, p) => a + p.objects.length, 0);
+    return { n: Math.min(n, 100), more: n >= 100 };
   }
 
   // Whether an output is still live, and if not, which transaction consumed it.
@@ -382,7 +389,8 @@ export class Explorer {
     if (!this.tags.has(tx.hash)) {
       const tags = new Set<string>();
       tx.outputs.forEach((o, i) => {
-        const tag = tagOf(this.cell(o, tx.outputs_data[i]).decoded);
+        const cell = this.cell(o, tx.outputs_data[i]);
+        const tag = tagOf(cell.decoded) ?? scriptTag(cell.type?.resolved);
         if (tag) tags.add(tag);
       });
       this.tags.set(tx.hash, [...tags]);
@@ -418,6 +426,14 @@ export class Explorer {
 }
 
 const short = (h: string) => `${h.slice(0, 10)}…${h.slice(-6)}`;
+
+// Cells we can't decode still say something when their type is one of your own scripts
+// (or a JS contract run by ckb_js_vm): the feed shows the contract's name.
+function scriptTag(r: Resolved | undefined): string | null {
+  if (r?.inner?.name) return r.inner.name;
+  if (r?.name && r.source !== "genesis") return r.name;
+  return null;
+}
 
 function tagOf(d: Decoded | null): string | null {
   if (!d) return null;

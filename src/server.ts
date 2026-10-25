@@ -42,7 +42,8 @@ export function startServer(explorer: Explorer, port: number, rpcUrl: string, pr
       // Everything else is the single-page UI and its modules.
       const file = url.pathname === "/" || !extname(url.pathname) ? "index.html" : normalize(url.pathname).replace(/^([/\\]|\.\.)+/, "");
       const body = await readFile(join(WEB_DIR, file));
-      res.writeHead(200, { "Content-Type": TYPES[extname(file)] ?? "application/octet-stream" });
+      // no-cache: the browser revalidates, so an updated explorer never runs yesterday's page code.
+      res.writeHead(200, { "Content-Type": TYPES[extname(file)] ?? "application/octet-stream", "Cache-Control": "no-cache" });
       res.end(body);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

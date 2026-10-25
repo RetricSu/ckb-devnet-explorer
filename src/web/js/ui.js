@@ -29,13 +29,15 @@ export function ago(ms) {
   return `${Math.round(s / 86400)}d ago`;
 }
 
+// The devnet's genesis block has timestamp 0, which would read as "20000d ago".
 export function when(ms) {
   if (ms == null) return "—";
+  if (ms === 0) return "genesis";
   const d = new Date(ms);
   return `<time datetime="${d.toISOString()}" title="${d.toLocaleString()}">${ago(ms)}</time>`;
 }
 
-export const absolute = (ms) => (ms == null ? "—" : new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" }));
+export const absolute = (ms) => (ms == null ? "—" : ms === 0 ? "Genesis, no timestamp" : new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" }));
 
 // ---- links ----
 

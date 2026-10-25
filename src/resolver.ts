@@ -44,6 +44,18 @@ export class Resolver {
     return this.known.get(key(codeHash, hashType)) ?? null;
   }
 
+  // The script prefixes a cell carries when it uses this script: the script itself, and,
+  // for JS contracts, ckb_js_vm with the contract's code hash and hash type at the start of
+  // the args. Searching only the first misses every cell of a JS contract.
+  usagePrefixes(s: { codeHash: string; hashType: string }): RpcScript[] {
+    const prefixes: RpcScript[] = [{ code_hash: s.codeHash, hash_type: s.hashType, args: "0x" }];
+    const vm = this.all().find((k) => k.name === "ckb_js_vm");
+    const byte = Object.entries(HASH_TYPES).find(([, t]) => t === s.hashType)?.[0];
+    if (vm && byte !== undefined && s.codeHash !== vm.codeHash)
+      prefixes.push({ code_hash: vm.codeHash, hash_type: vm.hashType, args: "0x0000" + s.codeHash.slice(2) + Number(byte).toString(16).padStart(2, "0") });
+    return prefixes;
+  }
+
   codeCell(dataHash: string | null, typeHash: string | null): { script: KnownScript; matchedBy: "data hash" | "type hash" } | null {
     const byData = dataHash && this.byDataHash.get(dataHash.toLowerCase());
     if (byData) return { script: byData, matchedBy: "data hash" };

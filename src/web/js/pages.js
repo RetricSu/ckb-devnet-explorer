@@ -14,7 +14,7 @@ export async function overview() {
   const txRows = o.transactions.map((t) => `<tr>
       <td>${txLink(t.hash)}</td>
       <td>${blockLink(t.blockNumber)}</td>
-      <td>${tags(t.tags) || '<span class="muted">CKB transfer</span>'}</td>
+      <td>${tags(t.tags) || `<span class="muted">${t.blockNumber === 0 ? "Genesis" : "CKB transfer"}</span>`}</td>
       <td class="r nowrap">${t.outputs}</td>
       <td class="r nowrap muted">${when(t.timestamp)}</td>
     </tr>`).join("");
@@ -83,7 +83,7 @@ export async function transaction(hash) {
     ${pageHead({ eyebrow: `Transaction ${statusPill}`, title: tx.hash, hash: tx.hash })}
     ${facts([
       ["Block", tx.blockNumber != null ? `${blockLink(tx.blockNumber)} <small>${int(tx.confirmations)} confirmation${tx.confirmations === 1 ? "" : "s"}</small>` : "Not in a block yet"],
-      ["Time", tx.timestamp ? `${absolute(tx.timestamp)} <small>${when(tx.timestamp)}</small>` : "—"],
+      ["Time", tx.timestamp ? `${absolute(tx.timestamp)} <small>${when(tx.timestamp)}</small>` : absolute(tx.timestamp)],
       ["Cells", `${tx.inputs.length} consumed → ${tx.outputs.length} created`],
       ["Fee", tx.fee != null ? `<span class="num">${ckb(tx.fee)}</span> <small>${int(tx.feeRate)} shannons/kB</small>` : tx.cellbase ? "None (block reward)" : "—", "Input capacity minus output capacity"],
       ["Size", `<span class="num">${int(tx.size)}</span> <small>bytes</small>`],
@@ -107,7 +107,16 @@ export async function transaction(hash) {
       aside: "Cells this transaction reads code from without consuming them",
       body: tx.cellDeps.length ? `<div class="table-scroll"><table class="table"><thead><tr><th>Out point</th><th>Kind</th><th>Provides</th></tr></thead><tbody>${deps}</tbody></table></div>` : "",
       empty: "None.",
-    })}`;
+    })}
+    ${tx.headerDeps.length ? panel({
+      title: "Header deps",
+      count: tx.headerDeps.length,
+      aside: "Block headers this transaction's scripts can read, e.g. the Nervos DAO checks when a deposit was made",
+      body: `<ul class="block-list">${tx.headerDeps.map((h) => `<li>
+        <span class="n">${h.number != null ? blockLink(h.number) : "?"}</span>
+        <a class="mono muted" href="#/block/${h.hash}" title="${h.hash}">${short(h.hash)}</a>
+      </li>`).join("")}</ul>`,
+    }) : ""}`;
   return { title: `Transaction ${short(tx.hash)}`, html };
 }
 
@@ -128,7 +137,7 @@ export async function block(id) {
     ${pageHead({ eyebrow: "Block", title: `#${int(b.number)}`, aside: nav })}
     ${facts([
       ["Hash", `<span class="mono">${short(b.hash, 14, 10)}</span> ${copyBtn(b.hash, "block hash")}`],
-      ["Time", `${absolute(b.timestamp)} <small>${when(b.timestamp)}</small>`],
+      ["Time", b.timestamp ? `${absolute(b.timestamp)} <small>${when(b.timestamp)}</small>` : absolute(b.timestamp)],
       ["Confirmations", `<span class="num">${int(b.confirmations)}</span>`],
       ["Epoch", `<span class="num">${int(b.epoch.number)}</span> <small>block ${int(b.epoch.index)} of ${int(b.epoch.length)}</small>`],
       ["Parent", b.number > 0 ? `<a class="mono" href="#/block/${b.number - 1}" title="${b.parentHash}">${short(b.parentHash, 10, 6)}</a>` : "Genesis has no parent"],
@@ -197,6 +206,7 @@ export async function script(codeHash, hashType) {
   const s = await api(`/api/script/${codeHash}/${hashType}`);
   const count = (c) => (c ? `${c.n}${c.more ? "+" : ""}` : "—");
   const missing = s.location && s.locationLive === false;
+  const usedBy = (c) => `<span class="num">${count(c)}</span> <small>live cell${c?.n === 1 && !c.more ? "" : "s"}</small>`;
   const html = `
     ${pageHead({
       eyebrow: "Script",
@@ -208,8 +218,8 @@ export async function script(codeHash, hashType) {
       ["Code hash", `<span class="mono">${short(s.codeHash, 14, 10)}</span> ${copyBtn(s.codeHash, "code hash")}`],
       ["Hash type", `<span class="mono">${esc(s.hashType)}</span> <small>${s.hashType === "type" ? "matched against a code cell's type script hash" : "matched against a code cell's data hash"}</small>`],
       ["Code cell", s.location ? `${outPointLink(s.location)} ${s.locationLive ? '<span class="pill ok">Live</span>' : '<span class="pill bad">Missing</span>'}${s.location.depType === "depGroup" ? " <small>dep group</small>" : ""}` : '<span class="muted">Unknown</span>'],
-      ["Used as type", `<span class="num">${count(s.counts?.asType ?? (s.asType.length ? { n: s.asType.length, more: s.asType.length === 20 } : null))}</span> <small>live cells</small>`],
-      ["Used as lock", `<span class="num">${count(s.counts?.asLock ?? (s.asLock.length ? { n: s.asLock.length, more: s.asLock.length === 20 } : null))}</span> <small>live cells</small>`],
+      ["Used as type", usedBy(s.counts?.asType ?? (s.asType.length ? { n: s.asType.length, more: s.asType.length === 20 } : null))],
+      ["Used as lock", usedBy(s.counts?.asLock ?? (s.asLock.length ? { n: s.asLock.length, more: s.asLock.length === 20 } : null))],
       ["Source", s.source === "genesis" ? "Built into the devnet" : s.source ? `Your project <b>${esc(s.source)}</b>` : "—"],
     ])}
     ${s.asType.length || !s.asLock.length ? panel({
