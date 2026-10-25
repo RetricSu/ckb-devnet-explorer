@@ -1,24 +1,35 @@
 {
   "name": "ckb-devnet-explorer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A lightweight explorer for OffCKB devnets: no database, reads the node directly, names your own deployed scripts.",
   "type": "module",
   "bin": {
-    "ckb-devnet-explorer": "./src/cli.ts"
+    "ckb-devnet-explorer": "./bin/ckb-devnet-explorer.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "engines": {
+    "node": ">=22"
   },
   "scripts": {
     "scan": "tsx src/cli.ts",
     "serve": "tsx src/cli.ts serve",
     "check": "tsc"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wildanrhmn/ckb-devnet-explorer.git"
+  },
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^26.6.4",
-    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   },
   "dependencies": {
     "@ckb-ccc/core": "^1.23.0",
-    "@ckb-ccc/spore": "^1.6.15"
+    "@ckb-ccc/spore": "^1.6.15",
+    "tsx": "^4.23.15"
   }
 }

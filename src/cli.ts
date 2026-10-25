@@ -13,12 +13,38 @@ const { values, positionals } = parseArgs({
     project: { type: "string", multiple: true, default: [process.cwd()] },
     txs: { type: "string", default: "10" },
     port: { type: "string", default: "7070" },
+    help: { type: "boolean", short: "h", default: false },
   },
 });
 
+if (values.help) {
+  console.log(`ckb-devnet-explorer: a lightweight explorer for OffCKB devnets
+
+Usage:
+  ckb-devnet-explorer serve [options]   start the web explorer
+  ckb-devnet-explorer [options]         print the latest transactions in the terminal
+
+Options:
+  --project <dir>   a project deployed with \`offckb deploy\` (repeatable, default: current folder)
+  --rpc <url>       devnet RPC (default: http://127.0.0.1:8114)
+  --port <n>        web port for serve (default: 7070)
+  --txs <n>         how many transactions the terminal version prints (default: 10)
+  -h, --help        show this help
+
+Needs offckb on your PATH and a running devnet (\`offckb node\`).`);
+  process.exit(0);
+}
+
 const url = values.rpc!;
 const projects = values.project!;
-const known = loadSystemScripts();
+let known: ReturnType<typeof loadSystemScripts>;
+try {
+  known = loadSystemScripts();
+} catch (err) {
+  if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  console.error("offckb isn't on your PATH. Install it with `npm i -g @offckb/cli`, start a devnet with `offckb node`, then run this again.");
+  process.exit(1);
+}
 let projectCount = 0;
 for (const dir of projects) {
   const scripts = loadProjectScripts(dir);
