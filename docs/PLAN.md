@@ -30,5 +30,5 @@ A lightweight explorer for OffCKB devnets:
 | 9  | Repo, plan, core: RPC client + script name resolver as a CLI |
 | 10 | Web UI: transaction feed, transaction view with inputs resolved, capacity bars. Plain HTML/JS served by the same Node process, no build step |
 | 11 | Code cells recognised by data hash and type hash; decoders for Nervos DAO, sUDT, xUDT, Spore, cluster, Type ID; live/spent status with the spending tx; addresses, fee, cycles; raw fields view. Redesigned UI: overview, block, address and script pages, search |
-| 12 | One-command run, README, demo |
+| 12 | One-command run (`npx github:wildanrhmn/ckb-devnet-explorer serve`), README, demo. Checked on a fresh devnet on macOS: JS contract usage through `ckb_js_vm`, DAO withdrawal request with its header dep, genesis code cells matched by type hash |
 | 13 | Buffer, final report, demo video |

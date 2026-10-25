@@ -23,6 +23,7 @@ would spend most of its life re-indexing.
 | `src/server.ts` | `node:http` server: the JSON API below and the static files. |
 | `src/web/` | The page. Plain HTML/CSS/JS modules, no build step, system fonts only, so it works offline. `js/ui.js` has the shared pieces (capacity bar, cell row, script name), `js/pages.js` one function per page, `js/app.js` the hash router, search, node status and live refresh. |
 | `src/cli.ts` | `serve` starts the server; with no command it prints recent transactions to the terminal. |
+| `bin/ckb-devnet-explorer.js` | Entry point for `npx` and global installs. Registers tsx and imports `src/cli.ts`, so there's still no build step. |
 
 ## API
 
@@ -49,6 +50,12 @@ a script with hash type `data`/`data1`/`data2` loads code from the cell whose `c
 each cell's data and type script and checks both against the known scripts. That labels your own
 deployments (by data hash) and the upgradable genesis cells (by type hash).
 
+**JS contracts.** A JS contract's cells don't carry its code hash: their lock or type is `ckb_js_vm`, and the
+args start with 2 flag bytes, the contract's code hash and its hash type byte. Naming goes through the args
+(see the resolver), and so does counting usage: for each project script the explorer runs two indexer prefix
+searches, one on the script itself and one on `ckb_js_vm` with `0x0000 + code_hash + hash_type` as the args
+prefix. Before this, a JS contract with live cells was reported as unused.
+
 **Inputs.** `get_transaction` only gives an input as a pointer (`previous_output`), so each consumed cell is
 fetched from the transaction that created it.
 
@@ -63,6 +70,10 @@ the bar is the cell's capacity split into what it pays for. When free capacity i
 **Is my script deployed?** A project's `scripts.json` survives `offckb clean`, the chain doesn't. The
 overview checks each project script's code cell with `get_live_cell`; if it's gone, the script is listed as
 "Not on this chain" instead of being silently named.
+
+**Header deps.** A transaction can list block hashes its scripts may read. The Nervos DAO needs one to request a
+withdrawal: the script checks the deposit block's header to know when the deposit was made. Each header dep is
+looked up with `get_header` so the page shows a block number instead of a bare hash.
 
 **Transaction size and fee rate.** The RPC doesn't return a size, so the transaction is serialized with CCC
 (`Transaction.toBytes()`) and 4 bytes are added for its offset in the block, which is how the node counts it.
