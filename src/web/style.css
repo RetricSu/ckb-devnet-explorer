@@ -686,6 +686,7 @@ details.hex code { display: block; margin-top: 6px; background: none; padding: 0
   .nav-sub a:hover { background: none; color: #fff; }
   .nav a[aria-current], .nav-sub a[aria-current] { color: #fff; border: 0; box-shadow: inset 3px 0 0 var(--primary); padding-left: 10px; }
   .home-search { flex-direction: column; align-items: stretch; gap: 12px; }
+  .home-search .big-search { flex: none; }
 }
 @media (max-width: 480px) {
   /* The network label already says "CKB Devnet", so the logo's label makes room for the menu. */
