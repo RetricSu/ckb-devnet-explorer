@@ -1,5 +1,5 @@
 import {
-  addrLink, api, ckbIcon, blockLink, card, cellCard, cellList, ckb, detailCard, esc, icon, iconBtn, iconLink, int, plural,
+  addrLink, api, ckbIcon, claimCkb, blockLink, card, cellCard, cellList, ckb, detailCard, esc, icon, iconBtn, iconLink, int, plural,
   scriptName, short, sourceBadge, stamp, tags, txLink, when, outPointLink, copyBtn, txKind, table, progress, tabs, pager,
   delta, tokenDelta,
 } from "./ui.js";
@@ -398,6 +398,7 @@ export async function address(addr) {
       title: "Address",
       hash: a.address,
       small: true,
+      actions: faucetPopover(a.address),
       left: [
         [`${ckbIcon} CKB Balance`, ckb(a.balance), "Capacity of every live cell this address owns"],
         ["Occupied", `${int(a.occupied)} Bytes <small>across the cells shown</small>`],
@@ -432,6 +433,16 @@ export async function address(addr) {
     })}`;
   return { title: `Address ${short(a.address, 10, 6)}`, html };
 }
+
+// The CKB Explorer's faucet popover on address pages, here for devnet CKB.
+const faucetPopover = (addr) => addr.startsWith("ckt1") ? `<details class="pop">
+    <summary class="icon-btn" aria-label="Get devnet CKB" title="Get devnet CKB">${icon("faucet")}</summary>
+    <div class="pop-menu">
+      <button type="button" data-claim="${esc(addr)}" data-amount="10000">Claim 10,000 devnet CKB</button>
+      <button type="button" data-claim="${esc(addr)}" data-amount="100000">Claim 100,000 devnet CKB</button>
+      <a href="#/faucet?to=${encodeURIComponent(addr)}">Other amount on the Faucet page</a>
+    </div>
+  </details>` : "";
 
 // ---------------------------------------------------------------- script
 
@@ -469,4 +480,114 @@ export async function script(codeHash, hashType) {
       body: cellList(s.asLock, { role: "output" }),
     }) : ""}`;
   return { title: s.name ? `Script ${s.name}` : "Unknown script", html };
+}
+
+// ---------------------------------------------------------------- faucet
+
+// Laid out like the official CKB faucet (faucet.nervos.org): a dark hero with the rules,
+// "Send CKB to" and a Claim button, the faucet's balance, then the list of claims.
+export async function faucet(q) {
+  const f = await api("/api/faucet");
+  const to = q.get("to") ?? "";
+  const presets = [1000, 10000, 100000];
+  const off = !f.available;
+
+  const html = `
+    <section class="faucet-hero">
+      <img class="faucet-icon" src="/brand/ckb-token.png" width="72" height="72" alt="">
+      <h1>CKB Devnet Faucet</h1>
+      <p class="faucet-rules">Free CKB for your local devnet, sent from offckb's test account #${f.account?.index ?? 19}.
+        Up to ${int(f.max)} CKB per claim. It only exists on this chain.</p>
+      ${off ? `<div class="notice warn faucet-off"><p><b>The faucet is off.</b> ${esc(f.reason)}</p></div>` : ""}
+      <form id="faucet-form" class="faucet-form" novalidate>
+        <div class="faucet-row">
+          <label for="faucet-to">Send CKB to</label>
+          <input id="faucet-to" name="address" value="${esc(to)}" placeholder="Enter a devnet address (ckt1...)" autocomplete="off" spellcheck="false" required ${off ? "disabled" : ""}>
+        </div>
+        <div class="faucet-row">
+          <span class="faucet-label" id="faucet-amount-label">Amount</span>
+          <div class="segmented faucet-amounts" role="radiogroup" aria-labelledby="faucet-amount-label">
+            ${presets.map((n, i) => `<label><input type="radio" name="preset" value="${n}"${i === 1 ? " checked" : ""} ${off ? "disabled" : ""}><span>${int(n)}</span></label>`).join("")}
+            <label><input type="radio" name="preset" value="custom" ${off ? "disabled" : ""}><span>Custom</span></label>
+          </div>
+          <input class="faucet-custom" name="custom" type="number" inputmode="numeric" min="${f.min}" max="${f.max}" step="1" placeholder="CKB" aria-label="Custom amount in CKB" hidden>
+        </div>
+        <button class="btn primary faucet-claim" type="submit" ${off ? "disabled" : ""}>Claim</button>
+        <p class="faucet-msg" role="status" aria-live="polite"></p>
+      </form>
+      <p class="faucet-balance" id="faucet-balance">${faucetBalance(f)}</p>
+    </section>
+    <div id="faucet-claims">${claimsCard(f.claims)}</div>`;
+
+  // Live parts: the claims list and the balance update on their own, so the form keeps
+  // whatever is being typed into it.
+  const mount = (root) => {
+    const form = root.querySelector("#faucet-form");
+    const msg = form.querySelector(".faucet-msg");
+    const custom = form.elements.custom;
+    const refresh = async () => {
+      try {
+        const s = await api("/api/faucet");
+        root.querySelector("#faucet-claims").innerHTML = claimsCard(s.claims);
+        root.querySelector("#faucet-balance").innerHTML = faucetBalance(s);
+      } catch {}
+    };
+    form.addEventListener("change", (e) => {
+      if (e.target.name !== "preset") return;
+      custom.hidden = e.target.value !== "custom";
+      if (!custom.hidden) custom.focus();
+    });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const address = form.elements.address.value.trim();
+      const preset = form.elements.preset.value;
+      const amount = preset === "custom" ? Number(custom.value) : Number(preset);
+      const say = (text, bad = false) => { msg.textContent = text; msg.classList.toggle("bad", bad); };
+      if (!/^ckt1[0-9a-z]+$/.test(address)) return say("Enter a devnet address. It starts with ckt1.", true);
+      if (!Number.isInteger(amount) || amount < f.min || amount > f.max) return say(`Choose a whole amount from ${int(f.min)} to ${int(f.max)} CKB.`, true);
+      const button = form.querySelector(".faucet-claim");
+      button.disabled = true;
+      say(`Sending ${int(amount)} CKB… if another claim is still settling, this one waits for it.`);
+      try {
+        const claim = await claimCkb(address, amount);
+        msg.classList.remove("bad");
+        msg.innerHTML = `Sent ${int(amount)} CKB in ${txLink(claim.hash)}. It lands in the next few blocks.`;
+        refresh();
+      } catch (err) {
+        say(err.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    const timer = setInterval(refresh, 4000);
+    return () => clearInterval(timer);
+  };
+
+  return { title: "Faucet", html, mount };
+}
+
+function faucetBalance(f) {
+  if (!f.account) return "";
+  return `Faucet's current balance is ${f.balance != null ? ckb(f.balance) : "—"} · <a href="#/address/${f.account.address}">account #${f.account.index}</a>`;
+}
+
+function claimsCard(claims) {
+  const status = (c) => c.status === "committed"
+    ? `<span class="status">Committed</span> <small class="muted">${c.blockNumber != null ? `in ${blockLink(c.blockNumber)}` : ""}</small>`
+    : c.status === "rejected" ? '<span class="status bad">Rejected</span>' : `<span class="status wait">${c.status === "proposed" ? "Proposed" : "Pending"}</span>`;
+  const rows = claims.map((c) => `<tr>
+      <td>${txLink(c.hash, { head: 12, tail: 10 })}</td>
+      <td class="opt">${addrLink(c.to)}</td>
+      <td class="r">${ckb(BigInt(c.amount) * 100000000n)}</td>
+      <td>${status(c)}</td>
+      <td class="nowrap opt">${stamp(c.time)}</td>
+    </tr>`);
+  return card({
+    title: "Claims",
+    count: claims.length || null,
+    flush: true,
+    aside: "Sent by this explorer since it started",
+    body: claims.length ? table([["Transaction Hash"], ["To", "opt"], ["Amount", "r"], ["Status"], ["Time", "opt"]], rows) : "",
+    empty: "No claims yet. Send some CKB to an address above and it shows up here.",
+  }).replace('class="card-empty"', 'class="card-empty" style="padding:28px 40px"');
 }

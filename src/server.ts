@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Explorer } from "./explorer.ts";
+import type { Faucet } from "./faucet.ts";
 
 const WEB_DIR = fileURLToPath(new URL("./web/", import.meta.url));
 const TYPES: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".png": "image/png" };
@@ -16,7 +17,15 @@ const pageArgs = (url: URL) => {
   return [pageNo, size] as const;
 };
 
-export function startServer(explorer: Explorer, port: number, rpcUrl: string, projects: string[]) {
+const LOCAL = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+
+export function startServer(explorer: Explorer, faucet: Faucet, port: number, rpcUrl: string, projects: string[]) {
+  // Claims belong to one chain: forget them when `offckb clean` resets it.
+  let resets = 0;
+  const faucetStatus = async () => {
+    if (explorer.index.resets !== resets) { resets = explorer.index.resets; faucet.reset(); }
+    return faucet.status();
+  };
   const noTx = (m: RegExpMatchArray) => `No transaction ${m[1]} on this devnet.`;
   // [pattern, handler, message when the handler finds nothing]
   const routes: Route[] = [
@@ -33,6 +42,7 @@ export function startServer(explorer: Explorer, port: number, rpcUrl: string, pr
     [/^\/api\/block\/(\d+|0x[0-9a-fA-F]{64})$/, (m) => explorer.blockDetail(m[1]), (m) => `Block ${m[1]} doesn't exist on this devnet yet.`],
     [/^\/api\/address\/(ck[bt]1[0-9a-z]+)$/i, (m) => explorer.address(m[1]), (m) => `Couldn't read address ${m[1]}.`],
     [/^\/api\/script\/(0x[0-9a-fA-F]{64})\/(type|data|data1|data2)$/, (m) => explorer.script(m[1], m[2]), () => ""],
+    [/^\/api\/faucet$/, () => faucetStatus(), () => ""],
     [/^\/api\/search$/, (_, url) => explorer.search(url.searchParams.get("q") ?? ""), () => ""],
   ];
 
@@ -43,6 +53,33 @@ export function startServer(explorer: Explorer, port: number, rpcUrl: string, pr
       res.end(JSON.stringify(body));
     };
     try {
+      if (url.pathname === "/api/faucet" && req.method === "POST") {
+        // The one endpoint that writes to the chain. Only from this machine, only as JSON (a
+        // page on another site can't send that without a CORS preflight, which we never
+        // answer), and only from our own origin when the browser says where it came from.
+        const origin = req.headers.origin;
+        if (!LOCAL.has(req.socket.remoteAddress ?? "") || (origin && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)))
+          return json(403, { error: "The faucet only takes requests from this machine." });
+        if (!(req.headers["content-type"] ?? "").startsWith("application/json"))
+          return json(415, { error: "Send the claim as JSON." });
+        let raw = "";
+        for await (const chunk of req) {
+          raw += chunk;
+          if (raw.length > 2048) return json(413, { error: "Request too large." });
+        }
+        let body: { address?: unknown; amount?: unknown };
+        try { body = JSON.parse(raw); } catch { return json(400, { error: "Send the claim as JSON." }); }
+        const to = String(body.address ?? "").trim();
+        const amount = Number(body.amount);
+        const problem = await faucet.check(to, amount);
+        if (problem) return json(400, { error: problem });
+        try {
+          return json(200, await faucet.claim(to, amount));
+        } catch (err) {
+          return json(502, { error: `offckb couldn't send it: ${(err as Error).message}` });
+        }
+      }
+      if (req.method !== "GET" && req.method !== "HEAD") return json(405, { error: "Method not allowed." });
       if (url.pathname.startsWith("/api/")) {
         for (const [pattern, handler, notFound] of routes) {
           const m = url.pathname.match(pattern);

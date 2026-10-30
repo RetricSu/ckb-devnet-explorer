@@ -1,4 +1,4 @@
-import { api, int } from "./ui.js";
+import { api, int, toast, claimCkb } from "./ui.js";
 import * as pages from "./pages.js";
 import { mountCharts } from "./charts.js";
 import { initBanner } from "./banner.js";
@@ -16,10 +16,12 @@ const routes = [
   [/^\/block\/(\d+|0x[0-9a-f]{64})$/i, (m) => pages.block(m[1]), "blocks"],
   [/^\/address\/(ck[bt]1[0-9a-z]+)$/i, (m) => pages.address(m[1]), null],
   [/^\/script\/(0x[0-9a-f]{64})\/(type|data|data1|data2)$/i, (m) => pages.script(m[1].toLowerCase(), m[2]), null],
+  [/^\/faucet$/, (_, q) => pages.faucet(q), "faucet"],
 ];
 
 let refreshTimer = null;
 let renderId = 0;
+let unmount = null; // cleanup returned by the current page's mount()
 
 function parseHash() {
   const [path, query = ""] = (location.hash.replace(/^#/, "") || "/").split("?");
@@ -31,6 +33,7 @@ async function render({ quiet = false } = {}) {
   const { path, query } = parseHash();
   const route = routes.find(([re]) => re.test(path));
   clearInterval(refreshTimer);
+  if (!quiet) { unmount?.(); unmount = null; }
   banner.show(route?.[2] === "home");
   document.querySelectorAll(".nav a").forEach((a) => a.toggleAttribute("aria-current", a.dataset.section === route?.[2]));
   if (!quiet) page.innerHTML = `<p class="loading">Loading…</p>`;
@@ -46,6 +49,9 @@ async function render({ quiet = false } = {}) {
     document.title = `${result.title} · ckb-devnet-explorer`;
     if (!quiet) { window.scrollTo(0, 0); page.focus({ preventScroll: true }); }
     if (result.refresh) refreshTimer = setInterval(() => render({ quiet: true }), 5000);
+    // A page can run its own live updates on part of itself (the faucet's claims list) instead
+    // of a full refresh that would wipe what someone is typing.
+    if (result.mount && !quiet) unmount = result.mount(page) ?? null;
   } catch (err) {
     if (id !== renderId) return;
     page.innerHTML = `<div class="notice error"><p>${err.message.replace(/[<>&]/g, "")}</p></div><p><a href="#/">← Home</a></p>`;
@@ -114,15 +120,6 @@ document.addEventListener("keydown", (e) => {
 
 // ---- toasts, copy buttons, page-size selects ----
 
-let toastTimer;
-function toast(message, ms = 2600) {
-  const t = $("#toast");
-  t.textContent = message;
-  t.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.hidden = true), ms);
-}
-
 async function copy(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -136,6 +133,25 @@ async function copy(text) {
 $(".skip").addEventListener("click", (e) => {
   e.preventDefault();
   page.focus();
+});
+
+// The address page's faucet popover: claim straight to the address on screen, with the
+// CKB Explorer's two toasts ("Submitted a claim...", then "Claimed...").
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-claim]");
+  if (!btn) return;
+  e.preventDefault();
+  btn.closest("details")?.removeAttribute("open");
+  const amount = Number(btn.dataset.amount);
+  toast(`Submitted a claim for ${int(amount)} devnet CKB.`, 6000);
+  try {
+    await claimCkb(btn.dataset.claim, amount);
+    toast(`Claimed ${int(amount)} CKB. It lands in the next few blocks.`, 5000);
+    const here = location.hash;
+    setTimeout(() => { if (location.hash === here) render({ quiet: true }); }, 15000);
+  } catch (err) {
+    toast(err.message, 6000);
+  }
 });
 
 document.addEventListener("click", async (e) => {

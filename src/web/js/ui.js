@@ -12,6 +12,23 @@ export async function api(path) {
   return body;
 }
 
+let toastTimer;
+export function toast(message, ms = 2600) {
+  const t = document.querySelector("#toast");
+  t.textContent = message;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.hidden = true), ms);
+}
+
+// Ask the devnet faucet to send CKB. Resolves to the claim ({ hash, to, amount, time }).
+export async function claimCkb(address, amount) {
+  const res = await fetch("/api/faucet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address, amount }) });
+  const body = await res.json().catch(() => ({ error: `${res.status} ${res.statusText}` }));
+  if (!res.ok) throw new Error(body.error ?? res.statusText);
+  return body;
+}
+
 // ---- numbers & time ----
 
 // 1,234.56789000 CKB: always 8 decimals, the decimals smaller and grey.
@@ -80,6 +97,7 @@ const ICONS = {
   copy: `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 13V4.5a1 1 0 0 1 1-1H13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
   download: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   json: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4c-2 0-2 1.5-2 3s0 3-1.5 3C5 10 5 11.5 5 13s0 3 2 3M13 4c2 0 2 1.5 2 3s0 3 1.5 3C15 10 15 11.5 15 13s0 3-2 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  faucet: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5S4.5 8.6 4.5 12a5.5 5.5 0 0 0 11 0C15.5 8.6 10 2.5 10 2.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7.5 12.5a2.5 2.5 0 0 0 2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
   arrow: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h11m0 0-4-4m4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   blocks: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="13" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11 7h4a2 2 0 0 1 2 2v4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>`,
   txs: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14m0 0-4-4m4 4-4 4M20 16H6m0 0 4-4m-4 4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,

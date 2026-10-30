@@ -126,6 +126,49 @@ code { font: 13px var(--mono); background: var(--input); padding: 1px 5px; borde
 .banner-dots button[aria-pressed="true"] { background: #fff; }
 .banner-dots button:focus-visible { outline-offset: 4px; }
 
+/* ---------- faucet (laid out like faucet.nervos.org) ---------- */
+.faucet-hero { position: relative; display: flex; flex-direction: column; align-items: center; gap: 0; padding: 48px 40px 36px; margin-bottom: 20px; border-radius: 4px; overflow: hidden; color: #fff; text-align: center;
+  background:
+    radial-gradient(ellipse 60% 70% at 50% 40%, rgba(11, 13, 18, .2), rgba(11, 13, 18, .95)),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .045) 0 14px, transparent 14px 16px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .045) 0 14px, transparent 14px 16px),
+    #0b0d12; }
+.faucet-icon { width: 72px; height: 72px; border-radius: 12px; }
+.faucet-hero h1 { margin: 20px 0 8px; font: 500 36px var(--sans); }
+.faucet-rules { margin: 0; max-width: 560px; color: rgba(255, 255, 255, .75); font-size: 14px; }
+.faucet-off { margin: 20px 0 0; text-align: left; }
+.faucet-form { display: grid; gap: 16px; justify-items: center; width: 100%; max-width: 640px; margin-top: 28px; }
+.faucet-row { display: flex; align-items: center; gap: 14px; width: 100%; }
+.faucet-row label, .faucet-label { flex: 0 0 96px; text-align: right; font-size: 14px; color: rgba(255, 255, 255, .85); }
+.faucet-row input[name="address"] { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 0; border-radius: 4px; background: #fff; color: var(--strong); font: 14px var(--mono); }
+.faucet-row input:focus { outline: 2px solid var(--primary); outline-offset: 0; }
+.faucet-amounts { border-color: rgba(255, 255, 255, .3); }
+.faucet-amounts label { position: relative; }
+.faucet-amounts input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.faucet-amounts span { display: block; padding: 8px 16px; font: 14px var(--sans); color: #fff; }
+.faucet-amounts input:checked + span { background: #fff; color: #000; font-weight: 500; }
+.faucet-amounts input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: -2px; }
+.faucet-amounts input:disabled + span { opacity: .5; }
+.faucet-custom { width: 120px; height: 36px; padding: 0 10px; border: 0; border-radius: 4px; font: 14px var(--sans); }
+.faucet-claim { width: 160px; height: 40px; font-size: 15px; margin-top: 4px; }
+.faucet-claim:disabled { opacity: .55; cursor: default; }
+.faucet-msg { min-height: 20px; margin: 0; font-size: 14px; color: rgba(255, 255, 255, .85); }
+.faucet-msg.bad { color: #ff8f8e; }
+.faucet-msg a { color: var(--primary-dimmed); }
+.faucet-balance { margin: 18px 0 0; font-size: 14px; color: rgba(255, 255, 255, .85); }
+.faucet-balance .amount .unit, .faucet-balance .amount { color: #fff; }
+.faucet-balance a { color: var(--primary-dimmed); }
+
+/* The faucet popover on address pages (their Popover with "CKB Test Token"). */
+.pop { position: relative; }
+.pop > summary { list-style: none; }
+.pop > summary::-webkit-details-marker { display: none; }
+.pop[open] > summary { color: var(--primary); background: var(--input); }
+.pop-menu { position: absolute; z-index: 15; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); display: grid; min-width: 250px; padding: 4px; border-radius: 4px; background: #fff; box-shadow: 0 4px 16px rgba(0, 0, 0, .15); }
+.pop-menu button, .pop-menu a { display: block; padding: 8px 16px; border: 0; border-radius: 4px; background: none; color: var(--text); font: 14px var(--sans); text-align: left; cursor: pointer; white-space: nowrap; }
+.pop-menu button:hover, .pop-menu a:hover { background: var(--input); color: var(--strong); }
+.pop-menu a { color: var(--primary); }
+
 /* ---------- page & footer ---------- */
 .page { padding: 24px var(--gutter) 64px; outline: none; min-height: calc(100vh - 64px - 160px); }
 .loading { color: var(--muted); padding: 40px 0; }
@@ -420,6 +463,14 @@ details.hex code { display: block; margin-top: 6px; background: none; padding: 0
   :root { --gutter: 16px; }
   .page { padding-top: 16px; }
   .banner { height: 230px; }
+  .faucet-hero { padding: 32px 16px 28px; }
+  .faucet-hero h1 { font-size: 26px; }
+  .faucet-row { flex-direction: column; align-items: stretch; gap: 6px; }
+  .faucet-row input[name="address"] { flex: none; }
+  .faucet-row label, .faucet-label { flex: none; text-align: left; }
+  .faucet-amounts { align-self: flex-start; }
+  .faucet-amounts span { padding: 8px 12px; }
+  .pop-menu { left: auto; right: 0; transform: none; }
   .banner-big { font-size: 34px; }
   .banner-big .unit { display: block; margin: 4px 0 0; font-size: 18px; }
   .banner-title { font-size: 28px; }

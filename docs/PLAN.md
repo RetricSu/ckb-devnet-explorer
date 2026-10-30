@@ -22,7 +22,8 @@ A lightweight explorer for OffCKB devnets:
 ## Not in scope
 - Testnet or mainnet. The official explorer already covers those.
 - Historical indexing, search over all addresses, analytics.
-- Writing transactions. This is read-only.
+- Writing transactions, with one exception: the devnet faucet, which sends CKB from one of offckb's
+  test accounts and refuses to run on anything but a devnet.
 
 ## Plan
 | Week | Goal |

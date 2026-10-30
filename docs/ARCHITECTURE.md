@@ -23,6 +23,7 @@ page shows a toast when that happens.
 |------|-----|
 | `src/rpc.ts` | Minimal JSON-RPC client over `fetch`, with batch requests. |
 | `src/chain.ts` | The in-memory chain index (block and transaction summaries, reset detection) and the cellbase witness parser that finds a block's miner. |
+| `src/faucet.ts` | The devnet faucet: offckb test account #19, `offckb transfer`, devnet-only and localhost-only, one claim at a time. |
 | `src/txfields.ts` | Packed fields: `since` (RFC 0017), `WitnessArgs`, epoch numbers, difficulty from `compact_target`. |
 | `src/scripts.ts` | Loads script names: genesis scripts from `offckb system-scripts -o` (asked fresh every run, never cached on disk) and each project's `deployment/scripts.json`. |
 | `src/resolver.ts` | Turns a script (`code_hash` + `hash_type`) into a name. Also indexes code hashes the other way round to recognise the cells that *hold* the code. Looks through `ckb_js_vm` to the JS contract it runs. |
@@ -48,6 +49,8 @@ page shows a toast when that happens.
 | `GET /api/address/:address` | Balance, live cells, token balances, recent transactions. |
 | `GET /api/script/:codeHash/:hashType` | Name, code location, cells using it as lock or type. |
 | `GET /api/search?q=` | Which page a query points at. |
+| `GET /api/faucet` | Whether the faucet is available, its account and balance, and recent claims with their status. |
+| `POST /api/faucet` | `{ address, amount }`: sends devnet CKB. The only endpoint that writes. |
 
 Detail pages read straight from the node, so they're never stale. Home, the first page of each list, the
 pending tab and a pending transaction re-render every 5 seconds.
@@ -59,6 +62,20 @@ only answers once the block is finalized, 11 blocks later; until then the page s
 **Rejected transactions.** `get_transaction` on a hash the node rejected recently returns no transaction
 but a status of `rejected` and a JSON reason (`{"type": "Resolve", "description": ...}`). The page shows the
 type in plain words and the raw description.
+
+## Faucet
+
+`src/faucet.ts` is the only part that writes to the chain. offckb funds 20 test accounts in the devnet
+genesis and ships their keys in its package (`account/account.json`); the faucet finds that file next to the
+installed `offckb` and uses account #19, so it never spends from #0, the account most projects use. It sends
+with `offckb transfer` (key passed in the environment, not on the command line), so transactions are built
+and signed exactly as offckb does.
+
+Guardrails: it refuses unless `get_blockchain_info` says `ckb_dev`; `POST` is accepted only from localhost,
+only as JSON (another website can't send that without a CORS preflight, which the server never answers), and
+only from a localhost origin; amounts are whole CKB from 61 (the smallest secp256k1 cell) to 1,000,000.
+Claims run one at a time and each waits until the previous one is committed, because two transfers built
+back to back pick the same input and the node rejects the second (`PoolRejectedRBF`).
 
 ## Design
 

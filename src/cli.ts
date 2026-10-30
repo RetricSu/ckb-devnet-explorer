@@ -5,6 +5,7 @@ import { loadProjectScripts, loadSystemScripts } from "./scripts.ts";
 import { Resolver } from "./resolver.ts";
 import { Explorer } from "./explorer.ts";
 import { startServer } from "./server.ts";
+import { Faucet } from "./faucet.ts";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -55,7 +56,7 @@ const resolver = new Resolver(known);
 
 if (positionals[0] === "serve") {
   console.log(`known scripts: ${known.size - projectCount} genesis + ${projectCount} from projects`);
-  startServer(new Explorer(url, resolver), Number(values.port), url, projects);
+  startServer(new Explorer(url, resolver), new Faucet(url), Number(values.port), url, projects);
 } else {
   await scan();
 }
