@@ -19,7 +19,7 @@ const pageArgs = (url: URL) => {
 
 const LOCAL = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
-export function startServer(explorer: Explorer, faucet: Faucet, port: number, rpcUrl: string, projects: string[]) {
+export function createExplorerServer(explorer: Explorer, faucet: Faucet, rpcUrl: string, projects: string[]) {
   // Claims belong to one chain: forget them when `offckb clean` resets it.
   let resets = 0;
   const faucetStatus = async () => {
@@ -151,11 +151,17 @@ export function startServer(explorer: Explorer, faucet: Faucet, port: number, rp
     }
   });
 
-  // Keep the chain index warm so list pages don't wait for new blocks to be read.
+  // Keep upstream's index warm in both TCP and embedded bridge modes.
   const keepUp = () => explorer.index.sync().catch(() => {});
   keepUp();
-  setInterval(keepUp, 3000).unref();
+  const interval = setInterval(keepUp, 3000);
+  interval.unref();
+  server.once('close', () => clearInterval(interval));
+  return server;
+}
 
-  server.listen(port, () => console.log(`ckb-devnet-explorer running at http://localhost:${port}`));
+export function startServer(explorer: Explorer, faucet: Faucet, port: number, rpcUrl: string, projects: string[], host = "127.0.0.1") {
+  const server = createExplorerServer(explorer, faucet, rpcUrl, projects);
+  server.listen(port, host);
   return server;
 }
