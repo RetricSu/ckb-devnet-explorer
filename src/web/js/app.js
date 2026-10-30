@@ -1,40 +1,49 @@
-import { api, esc, int } from "./ui.js";
+import { api, int } from "./ui.js";
 import * as pages from "./pages.js";
 
 const $ = (s) => document.querySelector(s);
 const page = $("#page");
 
+// [pattern on the path, page, nav section]. The query string (?page=2) is passed separately.
 const routes = [
-  [/^#?\/?$/, () => pages.overview()],
-  [/^#\/tx\/(0x[0-9a-f]{64})$/i, (m) => pages.transaction(m[1].toLowerCase())],
-  [/^#\/block\/(\d+|0x[0-9a-f]{64})$/i, (m) => pages.block(m[1])],
-  [/^#\/address\/(ck[bt]1[0-9a-z]+)$/i, (m) => pages.address(m[1])],
-  [/^#\/script\/(0x[0-9a-f]{64})\/(type|data|data1|data2)$/i, (m) => pages.script(m[1].toLowerCase(), m[2])],
+  [/^\/?$/, () => pages.home(), "home"],
+  [/^\/blocks$/, (_, q) => pages.blocks(q), "blocks"],
+  [/^\/transactions$/, (_, q) => pages.transactions(q), "transactions"],
+  [/^\/tx\/(0x[0-9a-f]{64})$/i, (m) => pages.transaction(m[1].toLowerCase()), "transactions"],
+  [/^\/block\/(\d+|0x[0-9a-f]{64})$/i, (m) => pages.block(m[1]), "blocks"],
+  [/^\/address\/(ck[bt]1[0-9a-z]+)$/i, (m) => pages.address(m[1]), null],
+  [/^\/script\/(0x[0-9a-f]{64})\/(type|data|data1|data2)$/i, (m) => pages.script(m[1].toLowerCase(), m[2]), null],
 ];
 
 let refreshTimer = null;
 let renderId = 0;
 
+function parseHash() {
+  const [path, query = ""] = (location.hash.replace(/^#/, "") || "/").split("?");
+  return { path, query: new URLSearchParams(query) };
+}
+
 async function render({ quiet = false } = {}) {
   const id = ++renderId;
-  const hash = location.hash || "#/";
-  const route = routes.find(([re]) => re.test(hash));
+  const { path, query } = parseHash();
+  const route = routes.find(([re]) => re.test(path));
   clearInterval(refreshTimer);
+  document.querySelectorAll(".nav a").forEach((a) => a.toggleAttribute("aria-current", a.dataset.section === route?.[2]));
   if (!quiet) page.innerHTML = `<p class="loading">Loading…</p>`;
   try {
-    if (!route) throw new Error("There's no page at this address. Use the search box, or go back to the overview.");
-    const result = await route[1](hash.match(route[0]));
+    if (!route) throw new Error("There's no page at this address. Use the search box, or go back home.");
+    const result = await route[1](path.match(route[0]), query);
     if (id !== renderId) return; // a newer navigation started while this one loaded
-    // Keep expanded cells expanded across live refreshes.
-    const openCells = [...page.querySelectorAll("details.cell")].flatMap((d, i) => (d.open ? [i] : []));
+    // Keep expanded rows expanded across live refreshes.
+    const open = [...page.querySelectorAll("details")].flatMap((d, i) => (d.open ? [i] : []));
     page.innerHTML = result.html;
-    if (quiet) openCells.forEach((i) => page.querySelectorAll("details.cell")[i]?.setAttribute("open", ""));
+    if (quiet) open.forEach((i) => page.querySelectorAll("details")[i]?.setAttribute("open", ""));
     document.title = `${result.title} · ckb-devnet-explorer`;
     if (!quiet) { window.scrollTo(0, 0); page.focus({ preventScroll: true }); }
     if (result.refresh) refreshTimer = setInterval(() => render({ quiet: true }), 5000);
   } catch (err) {
     if (id !== renderId) return;
-    page.innerHTML = `<div class="notice error"><p>${esc(err.message)}</p></div><p><a href="#/">← Back to the overview</a></p>`;
+    page.innerHTML = `<div class="notice error"><p>${err.message.replace(/[<>&]/g, "")}</p></div><p><a href="#/">← Home</a></p>`;
     document.title = "Not found · ckb-devnet-explorer";
   }
 }
@@ -42,6 +51,7 @@ async function render({ quiet = false } = {}) {
 // ---- node status in the top bar ----
 
 let lastTip = null;
+let lastResets = null;
 async function pollNode() {
   const node = $("#node");
   try {
@@ -55,7 +65,13 @@ async function pollNode() {
       void node.offsetWidth;
       node.classList.add("tick");
     }
+    // `offckb clean` wiped the chain while the page was open.
+    if (lastResets !== null && info.resets !== lastResets) {
+      toast("The devnet was reset. Showing the new chain.", 5000);
+      render();
+    }
     lastTip = info.tip;
+    lastResets = info.resets;
   } catch (err) {
     node.classList.add("down");
     node.classList.remove("up");
@@ -83,34 +99,55 @@ $("#search").addEventListener("submit", async (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) {
+  if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) {
     e.preventDefault();
     $("#q").focus();
   }
 });
 
-// ---- copy buttons ----
+// ---- toasts, copy buttons, page-size selects ----
 
 let toastTimer;
-function toast(message) {
+function toast(message, ms = 2600) {
   const t = $("#toast");
   t.textContent = message;
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.hidden = true), 2600);
+  toastTimer = setTimeout(() => (t.hidden = true), ms);
 }
 
-document.addEventListener("click", async (e) => {
-  const btn = e.target.closest("[data-copy]");
-  if (!btn) return;
-  e.preventDefault();
-  e.stopPropagation();
+async function copy(text) {
   try {
-    await navigator.clipboard.writeText(btn.dataset.copy);
+    await navigator.clipboard.writeText(text);
     toast("Copied");
   } catch {
     toast("Couldn't copy. Select the text and copy it instead.");
   }
+}
+
+// The skip link can't use a #fragment: the hash is the router's.
+$(".skip").addEventListener("click", (e) => {
+  e.preventDefault();
+  page.focus();
+});
+
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-copy], [data-copy-url]");
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (btn.dataset.copy != null) return copy(btn.dataset.copy);
+  // Copy what an API URL returns, pretty-printed (e.g. a transaction's raw JSON).
+  try {
+    const res = await fetch(btn.dataset.copyUrl);
+    copy(JSON.stringify(await res.json(), null, 2));
+  } catch (err) {
+    toast(err.message);
+  }
+});
+
+document.addEventListener("change", (e) => {
+  if (e.target.matches("select[data-nav]")) location.hash = e.target.value;
 });
 
 window.addEventListener("hashchange", () => render());

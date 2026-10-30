@@ -1,94 +1,221 @@
 import {
   absolute, addrLink, api, blockLink, cellList, ckb, esc, facts, int, pageHead, panel, scriptName, short,
-  sourceBadge, tags, txLink, when, outPointLink, copyBtn,
+  sourceBadge, tags, txLink, when, outPointLink, copyBtn, txKind, table, stat, progress, tabs, pager, delta, tokenDelta,
 } from "./ui.js";
 
-// Each page returns { title, html } and may return a refresh() for live updates.
+// Each page returns { title, html } and may set refresh: true for live updates.
 
-// ---------------------------------------------------------------- overview
+const plural = (n, word) => `${int(n)} ${word}${n === 1 ? "" : "s"}`;
+const viewAll = (href, label) => `<a class="view-all" href="${href}">${label} →</a>`;
+const ageCell = (ms) => `<td class="r nowrap muted">${when(ms)}</td>`;
 
-export async function overview() {
-  const o = await api("/api/overview");
-  const seconds = o.blockTime != null ? (o.blockTime / 1000).toFixed(1) : null;
+// ---------------------------------------------------------------- home
 
-  const txRows = o.transactions.map((t) => `<tr>
+export async function home() {
+  const h = await api("/api/home");
+  const epochFraction = h.epoch.length ? (h.epoch.index + 1) / h.epoch.length : 0;
+  const pool = h.pool.pending + h.pool.proposed;
+
+  const stats = `<div class="stats">
+    ${stat({ label: "Latest block", value: `#${int(h.tip)}`, sub: when(h.tipTimestamp), href: `#/block/${h.tip}` })}
+    ${stat({ label: "Epoch", value: int(h.epoch.number), sub: `block ${int(h.epoch.index + 1)} of ${int(h.epoch.length)}`, extra: progress(epochFraction, "Epoch progress") })}
+    ${stat({ label: "Block time", value: h.blockTime != null ? `${(h.blockTime / 1000).toFixed(1)}<small>s</small>` : "—", sub: "median of the last 20 blocks" })}
+    ${stat({ label: "Transactions", value: int(h.transactionCount), sub: "on this chain, not counting block rewards", href: "#/transactions" })}
+    ${stat({ label: "Tx pool", value: int(pool), sub: pool ? `${int(h.pool.pending)} pending · ${int(h.pool.proposed)} proposed` : "nothing waiting", href: "#/transactions?tab=pending" })}
+    ${stat({ label: "Min fee rate", value: int(h.pool.minFeeRate), sub: "shannons per kB to enter the pool" })}
+    ${stat({ label: "Difficulty", value: int(h.difficulty), sub: "fixed: a devnet's proof of work is a dummy" })}
+    ${stat({ label: "Known scripts", value: int(h.knownScripts.genesis + h.knownScripts.project), sub: `${h.knownScripts.genesis} genesis · ${h.knownScripts.project} from your projects` })}
+  </div>`;
+
+  const blockRows = h.blocks.map((b) => `<tr>
+      <td>${blockLink(b.number)}</td>
+      <td class="r">${b.txs ? int(b.txs) : '<span class="muted">0</span>'}</td>
+      <td class="r mono opt">${b.liveCellsChange > 0 ? "+" : ""}${int(b.liveCellsChange)}</td>
+      <td class="opt">${b.miner ? addrLink(b.miner) : '<span class="muted">—</span>'}</td>
+      ${ageCell(b.timestamp)}
+    </tr>`);
+
+  const txRows = h.transactions.map((t) => `<tr>
       <td>${txLink(t.hash)}</td>
-      <td>${blockLink(t.blockNumber)}</td>
-      <td>${tags(t.tags) || `<span class="muted">${t.blockNumber === 0 ? "Genesis" : "CKB transfer"}</span>`}</td>
-      <td class="r nowrap">${t.outputs}</td>
-      <td class="r nowrap muted">${when(t.timestamp)}</td>
-    </tr>`).join("");
-
-  const scripts = o.scripts.map((s) => {
-    const used = (c) => `${c.n}${c.more ? "+" : ""}`;
-    const usage = [s.asType.n ? `${used(s.asType)} as type` : "", s.asLock.n ? `${used(s.asLock)} as lock` : ""].filter(Boolean).join(", ") || "no live cells use it";
-    return `<li>
-      <span><a class="script-name" href="#/script/${s.codeHash}/${s.hashType}">${esc(s.name)}</a> ${sourceBadge(s.source)}</span>
-      ${s.deployed ? `<span class="pill ok">Deployed</span>` : `<span class="pill bad" title="The code cell in this deployment isn't on the chain">Not on this chain</span>`}
-      <span class="meta">${s.deployed ? usage : "Redeploy it with <code>offckb deploy</code>: the deployment file points at a cell this chain doesn't have."}</span>
-    </li>`;
-  }).join("");
-
-  const blocks = o.blocks.slice(0, 8).map((b) => `<li>
-      <span class="n">${blockLink(b.number)}</span>
-      <span class="${b.transactions ? "" : "muted"}">${b.transactions ? `${b.transactions} tx${b.transactions === 1 ? "" : "s"}` : "empty"}</span>
-      <span class="when">${when(b.timestamp)}</span>
-    </li>`).join("");
+      <td>${txKind(t)}</td>
+      <td class="opt">${blockLink(t.blockNumber)}</td>
+      ${ageCell(t.timestamp)}
+    </tr>`);
 
   const html = `
-    ${pageHead({ eyebrow: "Overview", title: "Your devnet" })}
-    <section class="panel"><div class="status-line">
-      <span class="item">Tip <b>#${int(o.tip)}</b></span>
-      ${seconds ? `<span class="item">Block time <b>${seconds}s</b></span>` : ""}
-      <span class="item">Scripts known <b>${o.knownScripts.genesis + o.knownScripts.project}</b> <span>(${o.knownScripts.project} from your projects)</span></span>
-    </div></section>
-    <div class="grid-2">
-      <div>
-        ${panel({
-          title: "Latest transactions",
-          aside: "Cellbase rewards hidden",
-          body: o.transactions.length ? `<div class="table-scroll"><table class="table">
-            <thead><tr><th>Transaction</th><th>Block</th><th>What it did</th><th class="r">Outputs</th><th class="r">When</th></tr></thead>
-            <tbody>${txRows}</tbody></table></div>` : "",
-          empty: "No transactions yet. Deploy a contract or send CKB and it shows up here.",
-        })}
-      </div>
-      <div>
-        ${panel({
-          title: "Your scripts",
-          count: o.scripts.length || null,
-          body: o.scripts.length ? `<ul class="script-list">${scripts}</ul>` : "",
-          empty: "No project scripts loaded. Start the explorer with <code>--project path/to/your-project</code> to name your own contracts.",
-        })}
-        ${panel({ title: "Latest blocks", body: `<ul class="block-list">${blocks}</ul>` })}
-      </div>
-    </div>`;
-  return { title: "Overview", html, refresh: true };
+    ${pageHead({ eyebrow: `Devnet <span class="pill ok">${esc(h.chain)}</span>`, title: "Your devnet at a glance" })}
+    ${stats}
+    <div class="grid-even">
+      ${panel({
+        title: "Latest blocks",
+        aside: viewAll("#/blocks", "All blocks"),
+        body: table([["Height"], ["Txs", "r"], ["Live cells", "r opt"], ["Miner", "opt"], ["Age", "r"]], blockRows),
+      })}
+      ${panel({
+        title: "Latest transactions",
+        aside: viewAll("#/transactions", "All transactions"),
+        body: h.transactions.length ? table([["Hash"], ["What it did"], ["Block", "opt"], ["Age", "r"]], txRows) : "",
+        empty: "No transactions yet. Deploy a contract or send CKB and it shows up here.",
+      })}
+    </div>
+    ${yourScripts(h.scripts)}`;
+  return { title: "Home", html, refresh: true };
+}
+
+function yourScripts(scripts) {
+  const count = (c) => (c.n ? `${int(c.n)}${c.more ? "+" : ""}` : '<span class="muted">0</span>');
+  const rows = scripts.map((s) => `<tr>
+      <td><a class="script-name" href="#/script/${s.codeHash}/${s.hashType}">${esc(s.name)}</a></td>
+      <td>${sourceBadge(s.source)}</td>
+      <td>${s.deployed ? '<span class="pill ok">Deployed</span>' : '<span class="pill bad" title="The code cell in this deployment isn\'t on the chain">Not on this chain</span>'}</td>
+      <td>${s.location ? outPointLink(s.location) : '<span class="muted">—</span>'}</td>
+      <td class="r">${s.deployed ? count(s.asType) : "—"}</td>
+      <td class="r">${s.deployed ? count(s.asLock) : "—"}</td>
+    </tr>`);
+  const stale = scripts.filter((s) => !s.deployed).length;
+  return panel({
+    title: "Your scripts",
+    count: scripts.length || null,
+    aside: stale ? `<span class="warn-text">${plural(stale, "deployment")} not on this chain: run <code>offckb deploy</code> again</span>` : "From your projects' deployment/scripts.json",
+    body: scripts.length ? table([["Script"], ["Project"], ["Status"], ["Code cell"], ["Live cells as type", "r"], ["As lock", "r"]], rows) : "",
+    empty: "No project scripts loaded. Start the explorer inside your project folder, or pass <code>--project path/to/your-project</code>, to name your own contracts.",
+  });
+}
+
+// ---------------------------------------------------------------- block list
+
+export async function blocks(q) {
+  const page = Number(q.get("page")) || 1;
+  const size = Number(q.get("size")) || 20;
+  const p = await api(`/api/blocks?page=${page}&size=${size}`);
+  const rows = p.items.map((b) => `<tr>
+      <td>${blockLink(b.number)}</td>
+      <td class="opt"><a class="mono muted" href="#/block/${b.hash}" title="${b.hash}">${short(b.hash, 10, 6)}</a></td>
+      <td class="r">${b.txs ? int(b.txs) : '<span class="muted">0</span>'}</td>
+      <td class="r mono opt">${b.liveCellsChange > 0 ? "+" : ""}${int(b.liveCellsChange)}</td>
+      <td class="r nowrap">${b.reward != null ? ckb(b.reward) : '<span class="muted" title="A block reward is final 11 blocks later">pending</span>'}</td>
+      <td class="opt">${b.miner ? addrLink(b.miner) : '<span class="muted">Genesis</span>'}</td>
+      ${ageCell(b.timestamp)}
+    </tr>`);
+  const html = `
+    ${pageHead({ eyebrow: "Chain", title: "Blocks", sub: `${int(p.total)} blocks, newest first. An empty devnet still mines a block every few seconds.` })}
+    ${panel({
+      title: "Blocks",
+      aside: `Page ${int(p.page)} of ${int(p.pages)}`,
+      body: table([["Height"], ["Hash", "opt"], ["Txs", "r"], ["Live cells", "r opt"], ["Reward", "r"], ["Miner", "opt"], ["Age", "r"]], rows) + `<div class="panel-foot">${pager(p, "#/blocks")}</div>`,
+    })}`;
+  return { title: page > 1 ? `Blocks, page ${page}` : "Blocks", html, refresh: p.page === 1 };
+}
+
+// ---------------------------------------------------------------- transaction list
+
+export async function transactions(q) {
+  const pending = q.get("tab") === "pending";
+  const page = Number(q.get("page")) || 1;
+  const size = Number(q.get("size")) || 20;
+  // On the pending tab, still ask for one committed row so its tab can show the total.
+  const [list, pool] = await Promise.all([api(`/api/transactions?page=${pending ? 1 : page}&size=${pending ? 1 : size}`), api("/api/pool")]);
+  const tabBar = tabs([
+    { label: "Committed", href: "#/transactions", current: !pending, count: list?.total },
+    { label: "Pending", href: "#/transactions?tab=pending", current: pending, count: pool.transactions.length },
+  ]);
+
+  let body;
+  if (pending) {
+    const rows = pool.transactions.map((t) => `<tr>
+        <td>${txLink(t.hash)}</td>
+        <td><span class="pill ${t.status === "proposed" ? "ok" : "wait"}">${t.status === "proposed" ? "Proposed" : "Pending"}</span></td>
+        <td>${tags(t.tags) || '<span class="muted">CKB transfer</span>'}</td>
+        <td class="r nowrap">${ckb(t.fee)}</td>
+        <td class="r nowrap mono">${t.feeRate != null ? int(t.feeRate) : "—"}</td>
+        <td class="r mono">${int(t.size)}</td>
+        <td class="r mono">${int(t.cycles)}</td>
+        ${ageCell(t.timestamp)}
+      </tr>`);
+    body = panel({
+      title: "In the tx pool",
+      aside: `min fee rate ${int(pool.info.minFeeRate)} shannons/kB`,
+      body: rows.length ? table([["Hash"], ["Status"], ["What it does"], ["Fee", "r"], ["Fee rate", "r"], ["Size", "r"], ["Cycles", "r"], ["Seen", "r"]], rows) : "",
+      empty: "Nothing waiting. A transaction you send sits here until it's proposed and then committed, usually within a few blocks.",
+    });
+  } else {
+    const rows = list.items.map((t) => `<tr>
+        <td>${txLink(t.hash)}</td>
+        <td>${txKind(t)}</td>
+        <td class="opt">${blockLink(t.blockNumber)}</td>
+        <td class="r nowrap mono opt">${int(t.inputs)} → ${int(t.outputs)}</td>
+        <td class="r nowrap opt">${ckb(t.capacity)}</td>
+        ${ageCell(t.timestamp)}
+      </tr>`);
+    body = panel({
+      title: "Committed transactions",
+      aside: list.total ? `Page ${int(list.page)} of ${int(list.pages)} · block rewards not listed` : "Block rewards (cellbase) not listed",
+      body: rows.length ? table([["Hash"], ["What it did"], ["Block", "opt"], ["Cells", "r opt"], ["Output capacity", "r opt"], ["Age", "r"]], rows) + `<div class="panel-foot">${pager(list, "#/transactions")}</div>` : "",
+      empty: "No transactions yet. Deploy a contract or send CKB and it shows up here.",
+    });
+  }
+  const html = `
+    ${pageHead({ eyebrow: "Chain", title: "Transactions" })}
+    ${tabBar}
+    ${body}`;
+  return { title: pending ? "Pending transactions" : "Transactions", html, refresh: pending || list.page === 1 };
 }
 
 // ---------------------------------------------------------------- transaction
 
+const STATUS = {
+  committed: ["ok", "Committed"],
+  proposed: ["wait", "Proposed"],
+  pending: ["wait", "Pending"],
+  rejected: ["bad", "Rejected"],
+  unknown: ["", "Unknown"],
+};
+const statusPill = (s) => `<span class="pill ${STATUS[s]?.[0] ?? ""}">${STATUS[s]?.[1] ?? esc(s)}</span>`;
+
 export async function transaction(hash) {
   const tx = await api(`/api/tx/${hash}`);
-  const statusPill = tx.status === "committed" ? `<span class="pill ok">Committed</span>` : `<span class="pill wait">${esc(tx.status)}</span>`;
+  if (tx.rejected) return rejected(tx);
   const inputsTotal = tx.inputs.reduce((a, c) => a + (c.capacity ? BigInt(c.capacity) : 0n), 0n);
+  const inBlock = tx.blockNumber != null;
 
   const deps = tx.cellDeps.map((d) => `<tr>
       <td>${outPointLink(d)}</td>
       <td>${d.depType === "dep_group" ? "dep group" : "code"}</td>
       <td>${d.provides.length ? d.provides.map((p) => `<a class="script-name" href="#/script/${p.codeHash}/${p.hashType}">${esc(p.name)}</a> ${sourceBadge(p.source)}`).join(", ") : '<span class="muted">not a known script</span>'}</td>
-    </tr>`).join("");
+    </tr>`);
+
+  const changes = tx.changes.map((c) => `<tr>
+      <td>${addrLink(c.address)}<span class="sub">${esc(c.lockName ?? "unknown lock")}</span></td>
+      <td class="r nowrap">${delta(c.ckb)}</td>
+      <td>${c.tokens.length ? c.tokens.map((t) => `<span class="token-change">${tokenDelta(t.amount)} <span class="chip k-udt">${t.standard}</span> ${scriptName(t.type, { badge: false })}</span>`).join("") : '<span class="muted">—</span>'}</td>
+    </tr>`);
+
+  const witnesses = tx.witnesses.map((w, i) => `<tr>
+      <td class="muted mono">${i}</td>
+      <td class="r mono">${int(w.size)} B</td>
+      <td>${w.args ? `<span class="wa">WitnessArgs</span> ${[["lock", w.args.lock], ["input_type", w.args.inputType], ["output_type", w.args.outputType]].map(([k, v]) => `<span class="wa-field${v == null ? " none" : ""}">${k} ${v == null ? "—" : `${int(v)} B`}</span>`).join("")}` : w.size ? '<span class="muted">raw bytes</span>' : '<span class="muted">empty</span>'}</td>
+      <td>${w.size ? `<details class="hex"><summary>hex</summary><code>${esc(w.preview)}${w.size > 512 ? "…" : ""}</code></details>` : ""}</td>
+    </tr>`);
+
+  const actions = `<button class="btn" type="button" data-copy-url="/api/tx/${tx.hash}/raw">Copy JSON</button>
+    <a class="btn" href="/api/tx/${tx.hash}/raw" download="${tx.hash}.json">Download JSON</a>`;
 
   const html = `
-    ${pageHead({ eyebrow: `Transaction ${statusPill}`, title: tx.hash, hash: tx.hash })}
+    ${pageHead({ eyebrow: `Transaction ${statusPill(tx.status)}`, title: tx.hash, hash: tx.hash, aside: actions })}
+    ${inBlock ? "" : `<div class="notice warn"><p><b>Not in a block yet.</b> The node accepted it into the tx pool. It's committed once a block includes it, usually within a few blocks on a devnet.</p></div>`}
     ${facts([
-      ["Block", tx.blockNumber != null ? `${blockLink(tx.blockNumber)} <small>${int(tx.confirmations)} confirmation${tx.confirmations === 1 ? "" : "s"}</small>` : "Not in a block yet"],
+      ["Block", inBlock ? `${blockLink(tx.blockNumber)} <small>${plural(tx.confirmations, "confirmation")}</small>` : "Not in a block yet"],
       ["Time", tx.timestamp ? `${absolute(tx.timestamp)} <small>${when(tx.timestamp)}</small>` : absolute(tx.timestamp)],
       ["Cells", `${tx.inputs.length} consumed → ${tx.outputs.length} created`],
       ["Fee", tx.fee != null ? `<span class="num">${ckb(tx.fee)}</span> <small>${int(tx.feeRate)} shannons/kB</small>` : tx.cellbase ? "None (block reward)" : "—", "Input capacity minus output capacity"],
       ["Size", `<span class="num">${int(tx.size)}</span> <small>bytes</small>`],
       ["Cycles", tx.cycles != null ? `<span class="num">${int(tx.cycles)}</span>` : "—", "CKB-VM cycles used by all the scripts this transaction ran"],
     ])}
+    ${changes.length ? panel({
+      title: "Balance changes",
+      aside: "What each address gained or paid, fee included",
+      body: table([["Address"], ["CKB", "r"], ["Tokens"]], changes),
+    }) : ""}
     ${panel({
       title: "Consumed cells",
       count: tx.inputs.length,
@@ -101,23 +228,67 @@ export async function transaction(hash) {
       aside: ckb(tx.outputs.reduce((a, c) => a + BigInt(c.capacity), 0n)),
       body: cellList(tx.outputs, { role: "output", openAll: tx.inputs.length + tx.outputs.length <= 3 }),
     })}
+    <div class="grid-even">
+      ${panel({
+        title: "Cell deps",
+        count: tx.cellDeps.length,
+        aside: "Code read without being consumed",
+        body: tx.cellDeps.length ? table([["Out point"], ["Kind"], ["Provides"]], deps) : "",
+        empty: "None.",
+      })}
+      ${panel({
+        title: "Header deps",
+        count: tx.headerDeps.length,
+        aside: "Headers its scripts can read",
+        body: tx.headerDeps.length ? `<ul class="block-list">${tx.headerDeps.map((h) => `<li>
+          <span class="n">${h.number != null ? blockLink(h.number) : "?"}</span>
+          <a class="mono muted" href="#/block/${h.hash}" title="${h.hash}">${short(h.hash)}</a>
+        </li>`).join("")}</ul>` : "",
+        empty: "None. The Nervos DAO uses these to check when a deposit was made.",
+      })}
+    </div>
     ${panel({
-      title: "Cell deps",
-      count: tx.cellDeps.length,
-      aside: "Cells this transaction reads code from without consuming them",
-      body: tx.cellDeps.length ? `<div class="table-scroll"><table class="table"><thead><tr><th>Out point</th><th>Kind</th><th>Provides</th></tr></thead><tbody>${deps}</tbody></table></div>` : "",
+      title: "Witnesses",
+      count: tx.witnesses.length,
+      aside: "Signatures and other proof, one per input group",
+      body: tx.witnesses.length ? table([["#"], ["Size", "r"], ["Layout"], [""]], witnesses) : "",
       empty: "None.",
-    })}
-    ${tx.headerDeps.length ? panel({
-      title: "Header deps",
-      count: tx.headerDeps.length,
-      aside: "Block headers this transaction's scripts can read, e.g. the Nervos DAO checks when a deposit was made",
-      body: `<ul class="block-list">${tx.headerDeps.map((h) => `<li>
-        <span class="n">${h.number != null ? blockLink(h.number) : "?"}</span>
-        <a class="mono muted" href="#/block/${h.hash}" title="${h.hash}">${short(h.hash)}</a>
-      </li>`).join("")}</ul>`,
-    }) : ""}`;
-  return { title: `Transaction ${short(tx.hash)}`, html };
+    })}`;
+  return { title: `Transaction ${short(tx.hash)}`, html, refresh: !inBlock };
+}
+
+// What the node's reject types mean (ckb tx-pool `Reject`), in plain words.
+const REJECT_TYPES = {
+  Resolve: "An input or cell dep couldn't be found, or was already spent.",
+  Verification: "A script or a transaction rule failed.",
+  Malformed: "The transaction isn't well-formed.",
+  LowFeeRate: "The fee rate is below the node's minimum.",
+  RBFRejected: "It spends the same inputs as a transaction already in the pool, without paying enough extra fee to replace it.",
+  Duplicated: "The same transaction is already in the pool.",
+  Full: "The tx pool is full.",
+  ExceededMaximumAncestorsCount: "Too many unconfirmed transactions before it in the pool.",
+  ExceededTransactionSizeLimit: "The transaction is too large.",
+  Expiry: "It sat in the pool too long and expired.",
+  Invalidated: "Another transaction spent one of its inputs first.",
+};
+
+// The node keeps the reason for recently rejected transactions, not their contents.
+function rejected(tx) {
+  let type = null;
+  let description = tx.reason ?? "";
+  try {
+    ({ type, description } = JSON.parse(tx.reason));
+  } catch {}
+  const code = description.match(/error code (-?\d+)/i)?.[1];
+  const script = description.match(/(Inputs|Outputs)\[(\d+)\]\.(Lock|Type)/);
+  const html = `
+    ${pageHead({ eyebrow: `Transaction ${statusPill("rejected")}`, title: tx.hash, hash: tx.hash })}
+    <div class="notice error"><div>
+      <p><b>The node rejected this transaction${type ? ` (${esc(type)})` : ""}.</b> ${esc(REJECT_TYPES[type] ?? "")}${code ? ` A script returned error code <b>${esc(code)}</b>${script ? ` (the ${esc(script[3].toLowerCase())} script of ${esc(script[1].toLowerCase().replace(/s$/, ""))} #${esc(script[2])})` : ""}.` : ""}</p>
+      ${description ? `<pre class="reason">${esc(description)}</pre>` : ""}
+      <p class="muted">The node only remembers a rejected transaction's hash and reason, not its contents, and forgets them after a while.</p>
+    </div></div>`;
+  return { title: `Rejected ${short(tx.hash)}`, html };
 }
 
 // ---------------------------------------------------------------- block
@@ -129,25 +300,57 @@ export async function block(id) {
   const rows = b.transactions.map((t, i) => `<tr>
       <td class="muted mono">${i}</td>
       <td>${txLink(t.hash)}</td>
-      <td>${t.cellbase ? '<span class="muted">Cellbase (block reward)</span>' : tags(t.tags) || '<span class="muted">CKB transfer</span>'}</td>
-      <td class="r nowrap">${t.cellbase ? "—" : t.inputs} → ${t.outputs}</td>
+      <td>${t.cellbase ? '<span class="muted">Cellbase (block reward)</span>' : txKind({ ...t, blockNumber: b.number })}</td>
+      <td class="r nowrap mono">${t.cellbase ? "—" : int(t.inputs)} → ${int(t.outputs)}</td>
       <td class="r nowrap">${ckb(t.capacity)}</td>
-    </tr>`).join("");
+      <td class="r mono">${t.cycles != null ? int(t.cycles) : '<span class="muted">—</span>'}</td>
+    </tr>`);
+  const r = b.reward;
+  const reward = r
+    ? `<span class="num">${ckb(r.total)}</span><span class="breakdown">base ${ckb(r.base)} · secondary ${ckb(r.secondary)} · fees ${ckb(BigInt(r.committed) + BigInt(r.proposal))}</span>`
+    : b.number === 0 ? '<span class="muted">None for genesis</span>' : `<span class="muted">Final in ${plural(b.finalizedIn, "block")}</span>`;
+
+  const headerFields = Object.entries(b.header).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
   const html = `
     ${pageHead({ eyebrow: "Block", title: `#${int(b.number)}`, aside: nav })}
     ${facts([
-      ["Hash", `<span class="mono">${short(b.hash, 14, 10)}</span> ${copyBtn(b.hash, "block hash")}`],
+      ["Hash", `<span class="mono">${short(b.hash, 12, 8)}</span> ${copyBtn(b.hash, "block hash")}`],
       ["Time", b.timestamp ? `${absolute(b.timestamp)} <small>${when(b.timestamp)}</small>` : absolute(b.timestamp)],
+      ["Miner", b.miner ? addrLink(b.miner) : '<span class="muted">Genesis</span>', "The lock in the cellbase witness. Its reward is paid 11 blocks later."],
+      ["Reward", reward, "What the miner of this block earns"],
+      ["Transactions", `<span class="num">${int(b.transactions.length - 1)}</span> <small>plus the cellbase</small>`],
+      ["Epoch", `<span class="num">${int(b.epoch.number)}</span> <small>block ${int(b.epoch.index + 1)} of ${int(b.epoch.length)}</small>`],
       ["Confirmations", `<span class="num">${int(b.confirmations)}</span>`],
-      ["Epoch", `<span class="num">${int(b.epoch.number)}</span> <small>block ${int(b.epoch.index)} of ${int(b.epoch.length)}</small>`],
-      ["Parent", b.number > 0 ? `<a class="mono" href="#/block/${b.number - 1}" title="${b.parentHash}">${short(b.parentHash, 10, 6)}</a>` : "Genesis has no parent"],
-      ["Transactions", `<span class="num">${b.transactions.length - 1}</span> <small>plus the cellbase</small>`],
-    ])}
+      ["Size", b.size != null ? `<span class="num">${int(b.size)}</span> <small>bytes</small>` : "—"],
+      ["Cycles", `<span class="num">${int(b.cycles)}</span>`, "CKB-VM cycles of every transaction in the block"],
+      ["Difficulty", `<span class="num">${int(b.difficulty)}</span>`],
+      ["Nonce", `<span class="mono">${esc(b.nonce)}</span>`],
+      ["Miner message", b.minerMessage ? `<span class="mono">${esc(b.minerMessage)}</span>` : '<span class="muted">—</span>', "Free text in the cellbase witness. offckb's node writes its version here."],
+      ["Parent", b.number > 0 ? `<a class="mono" href="#/block/${b.number - 1}" title="${b.parentHash}">${short(b.parentHash, 10, 6)}</a>` : '<span class="muted">Genesis has no parent</span>'],
+      ["Proposals", `<span class="num">${int(b.proposals.length)}</span>`, "Transactions this block proposes for inclusion within the next few blocks"],
+      ["Uncles", `<span class="num">${int(b.uncles.length)}</span>`],
+      ["Version", `<span class="num">${int(Number(b.header.version))}</span>`],
+    ], 4)}
     ${panel({
       title: "Transactions",
       count: b.transactions.length,
-      body: `<div class="table-scroll"><table class="table"><thead><tr><th>#</th><th>Transaction</th><th>What it did</th><th class="r">Cells</th><th class="r">Output capacity</th></tr></thead><tbody>${rows}</tbody></table></div>`,
-    })}`;
+      body: table([["#"], ["Hash"], ["What it did"], ["Cells", "r"], ["Output capacity", "r"], ["Cycles", "r"]], rows),
+    })}
+    ${b.proposals.length ? panel({
+      title: "Proposals",
+      count: b.proposals.length,
+      aside: "Short ids (first 10 bytes of the tx hash)",
+      body: `<ul class="plain-list mono">${b.proposals.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>`,
+    }) : ""}
+    ${b.uncles.length ? panel({
+      title: "Uncles",
+      count: b.uncles.length,
+      body: `<ul class="block-list">${b.uncles.map((u) => `<li><span class="n">#${int(u.number)}</span><span class="mono muted">${short(u.hash)}</span></li>`).join("")}</ul>`,
+    }) : ""}
+    <details class="panel raw-panel">
+      <summary class="panel-head"><h2>Raw header</h2><span class="aside">As the node returns it</span></summary>
+      <div class="raw"><dl>${headerFields}</dl></div>
+    </details>`;
   return { title: `Block #${b.number}`, html };
 }
 

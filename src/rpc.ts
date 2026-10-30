@@ -16,6 +16,26 @@ export async function rpc<T>(url: string, method: string, params: unknown[] = []
   return body.result as T;
 }
 
+// Many calls in one HTTP request (JSON-RPC batch). Reading the whole chain one block per
+// request would take minutes on a devnet that has been running for a while.
+export async function rpcBatch<T>(url: string, calls: [string, unknown[]][]): Promise<T[]> {
+  if (!calls.length) return [];
+  const first = nextId;
+  nextId += calls.length;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(calls.map(([method, params], i) => ({ id: first + i, jsonrpc: "2.0", method, params }))),
+  });
+  const body = (await res.json()) as { id: number; result?: T; error?: { message: string } }[];
+  const byId = new Map(body.map((r) => [r.id, r]));
+  return calls.map(([method], i) => {
+    const r = byId.get(first + i);
+    if (!r || r.error) throw new Error(`${method}: ${r?.error?.message ?? "no response"}`);
+    return r.result as T;
+  });
+}
+
 export const getTipNumber = async (url: string) =>
   Number(BigInt(await rpc<string>(url, "get_tip_block_number")));
 

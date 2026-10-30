@@ -1,7 +1,7 @@
 # ckb-devnet-explorer
 
-A lightweight explorer for [OffCKB](https://github.com/ckb-devrel/offckb) devnets. No database, no indexer:
-it reads your devnet node directly and labels every script by name, including the ones your own projects deploy.
+A lightweight explorer for [OffCKB](https://github.com/ckb-devrel/offckb) devnets. No database, nothing to
+set up: it reads your devnet node directly and labels every script by name, including the ones your own projects deploy.
 
 ![A transaction minting 400 sUDT: fee, size and cycles at the top, then the consumed and created cells with their capacity bars](docs/screenshot.png)
 
@@ -9,13 +9,17 @@ it reads your devnet node directly and labels every script by name, including th
 
 ## Pages
 
-- **Overview**: latest transactions and blocks, refreshed as the devnet mines, plus a "Your scripts" panel
-  that says whether each script from your projects is actually deployed on this chain (it catches a stale
-  `scripts.json` after `offckb clean`).
-- **Transaction**: block, confirmations, fee and fee rate, size, cycles, cell deps, and every consumed and
-  created cell as an expandable row.
-- **Block**, **address** (balance, tokens, live cells, history) and **script** (where its code lives, which
-  cells use it as lock or type).
+- **Home**: chain stats (tip, epoch, block time, transaction count, tx pool, min fee rate), the latest blocks
+  and transactions, refreshed as the devnet mines, and a "Your scripts" table that says whether each script
+  from your projects is actually deployed on this chain (it catches a stale `scripts.json` after `offckb clean`).
+- **Blocks** and **Transactions**: every block and transaction on the chain, paginated, plus a **Pending** tab
+  for the tx pool.
+- **Transaction**: block, confirmations, fee and fee rate, size, cycles, balance changes per address (CKB and
+  tokens), every consumed and created cell as an expandable row, cell and header deps, witnesses, and the raw
+  JSON to copy or download. A transaction the node rejected shows the rejection reason.
+- **Block**: miner, reward breakdown, epoch, size, cycles, difficulty, proposals, uncles and the raw header.
+- **Address** (balance, tokens, live cells, history) and **script** (where its code lives, which cells use it
+  as lock or type).
 - **Search** for a tx hash, block number or hash, address, or script code hash. Press `/` to jump to it.
 
 ## What it shows

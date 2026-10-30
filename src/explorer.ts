@@ -1,7 +1,9 @@
 import { ccc } from "@ckb-ccc/core";
-import { getBlock, getTipNumber, rpc, type RpcBlock, type RpcOutput, type RpcScript, type RpcTransaction } from "./rpc.ts";
+import { getBlock, rpc, rpcBatch, type RpcBlock, type RpcOutput, type RpcScript, type RpcTransaction } from "./rpc.ts";
 import { Resolver, type Resolved } from "./resolver.ts";
 import { dataHash, decodeByType, scriptHash, type Decoded } from "./decode.ts";
+import { ChainIndex, parseCellbaseWitness, type BlockSummary, type TxSummary } from "./chain.ts";
+import { decodeSince, difficultyOf, epochOf, parseWitness, type Since } from "./txfields.ts";
 import type { KnownScript } from "./scripts.ts";
 
 const ZERO_HASH = "0x" + "0".repeat(64);
@@ -23,6 +25,7 @@ export type CellView = {
   outPoint?: { txHash: string; index: number };
   status?: CellStatus;
   blockNumber?: number;
+  since?: Since;
 };
 export type Unresolved = { unresolved: string };
 
@@ -34,14 +37,28 @@ type FullTx = RpcTransaction & {
   inputs: RpcInput[];
   witnesses: string[];
 };
-type TxResponse = { transaction: FullTx; cycles?: string | null; tx_status: { status: string; block_number: string | null; block_hash?: string | null } };
+type FullHeader = {
+  number: string; hash: string; parent_hash: string; timestamp: string; epoch: string; compact_target: string;
+  nonce: string; version: string; transactions_root: string; proposals_hash: string; extra_hash: string; dao: string;
+};
+type FullBlock = { header: FullHeader; transactions: FullTx[]; proposals: string[]; uncles: { header: FullHeader }[] };
+type TxStatus = { status: string; block_number: string | null; block_hash?: string | null; reason?: string | null };
+type TxResponse = { transaction: FullTx | null; cycles?: string | null; tx_status: TxStatus };
 type IndexerCell = { block_number: string; out_point: { tx_hash: string; index: string }; output: RpcOutput; output_data: string | null };
 type SearchKey = Record<string, unknown>;
+type PoolEntry = { cycles: string; size: string; fee: string; timestamp: string; ancestors_count: string };
+type EconomicState = {
+  issuance: { primary: string; secondary: string };
+  miner_reward: { primary: string; secondary: string; committed: string; proposal: string };
+  txs_fee: string;
+  finalized_at: string;
+};
 
 const scriptBytes = (s: RpcScript) => 32 + 1 + (s.args.length - 2) / 2;
 const toCcc = (s: RpcScript) => ccc.Script.from({ codeHash: s.code_hash, hashType: s.hash_type as ccc.HashType, args: s.args });
 // Address encoding only needs the prefix, not a network connection.
 const DEVNET_PREFIX = { addressPrefix: "ckt" } as unknown as ccc.Client;
+const addressOf = (s: RpcScript) => ccc.Address.fromScript(toCcc(s), DEVNET_PREFIX).toString();
 
 // Serialized size of a transaction as the node counts it for fees (the extra 4 bytes are its
 // offset in the block). CCC can't take the RPC's snake_case JSON directly, hence the mapping.
@@ -58,32 +75,38 @@ function txSize(t: FullTx) {
   }).toBytes().length + 4;
 }
 
-function epochOf(packed: string) {
-  const e = BigInt(packed);
-  return { number: Number(e & 0xffffffn), index: Number((e >> 24n) & 0xffffn), length: Number((e >> 40n) & 0xffffn) };
-}
+const page = <T>(all: T[], pageNo: number, size: number) => {
+  const total = all.length;
+  const pages = Math.max(1, Math.ceil(total / size));
+  const p = Math.min(Math.max(1, pageNo), pages);
+  // Newest first: page 1 is the end of the array.
+  const end = total - (p - 1) * size;
+  return { page: p, pages, size, total, items: all.slice(Math.max(0, end - size), end).reverse() };
+};
 
-// Devnet blocks never change once mined, until `offckb clean` wipes the chain.
-// Cache by number and drop everything if the tip ever goes backwards.
 export class Explorer {
+  // Full blocks for detail pages. Small, since the index keeps the summaries.
   private blocks = new Map<number, RpcBlock | null>();
   private tags = new Map<string, string[]>();
-  private lastTip = -1;
+  readonly index: ChainIndex;
 
-  constructor(private url: string, private resolver: Resolver) {}
-
-  async tip() {
-    const tip = await getTipNumber(this.url);
-    if (tip < this.lastTip) {
+  constructor(private url: string, private resolver: Resolver) {
+    this.index = new ChainIndex(url, (b) => this.summarize(b as unknown as FullBlock), () => {
       this.blocks.clear();
       this.tags.clear();
-    }
-    this.lastTip = tip;
-    return tip;
+    });
+  }
+
+  async tip() {
+    await this.index.sync();
+    return this.index.tip;
   }
 
   private async block(n: number) {
-    if (!this.blocks.has(n)) this.blocks.set(n, await getBlock(this.url, n));
+    if (!this.blocks.has(n)) {
+      if (this.blocks.size > 500) this.blocks.delete(this.blocks.keys().next().value!);
+      this.blocks.set(n, await getBlock(this.url, n));
+    }
     return this.blocks.get(n)!;
   }
 
@@ -91,47 +114,54 @@ export class Explorer {
     return num((block.header as unknown as { timestamp: string }).timestamp);
   }
 
-  // ---- overview -------------------------------------------------------------------------
-
-  async overview() {
-    const tip = await this.tip();
-    const recent = await Promise.all(Array.from({ length: Math.min(21, tip + 1) }, (_, i) => this.block(tip - i)));
-    const blocks = recent.filter((b): b is RpcBlock => !!b);
-    // Median, not mean: the devnet only mines while `offckb node` runs, so the gap across a
-    // restart would otherwise swamp the real block time.
-    const gaps = blocks.slice(1).map((b, i) => this.timestampOf(blocks[i]) - this.timestampOf(b)).sort((a, b) => a - b);
-    const scripts = await Promise.all(this.resolver.all().filter((s) => s.source !== "genesis").map((s) => this.scriptSummary(s)));
-    const { transactions } = await this.recentTransactions(12);
+  private summarize(b: FullBlock): { block: BlockSummary; txs: TxSummary[] } {
+    const number = num(b.header.number);
+    const timestamp = num(b.header.timestamp);
+    const consumed = b.transactions.slice(1).reduce((a, t) => a + t.inputs.length, 0);
+    const created = b.transactions.reduce((a, t) => a + t.outputs.length, 0);
     return {
-      tip,
-      blockTime: gaps.length ? gaps[Math.floor(gaps.length / 2)] : null,
-      knownScripts: { genesis: this.resolver.all().filter((s) => s.source === "genesis").length, project: scripts.length },
-      blocks: blocks.slice(0, 10).map((b) => ({
-        number: num(b.header.number),
-        hash: b.header.hash,
-        timestamp: this.timestampOf(b),
-        transactions: b.transactions.length - 1,
+      block: {
+        number, hash: b.header.hash, timestamp, txs: b.transactions.length - 1,
+        miner: parseCellbaseWitness(b.transactions[0]?.witnesses[0])?.lock ?? null,
+        liveCellsChange: created - consumed,
+      },
+      txs: b.transactions.slice(1).map((t) => ({
+        hash: t.hash, blockNumber: number, timestamp, inputs: t.inputs.length, outputs: t.outputs.length,
+        capacity: t.outputs.reduce((a, o) => a + BigInt(o.capacity), 0n).toString(),
+        tags: this.tagsFor(t),
       })),
-      transactions,
-      scripts,
     };
   }
 
-  async recentTransactions(limit: number, maxBlocks = 5000) {
+  // ---- home -----------------------------------------------------------------------------
+
+  async home() {
     const tip = await this.tip();
-    const found: { hash: string; blockNumber: number; outputs: number; timestamp: number; tags: string[] }[] = [];
-    for (let n = tip; n >= 0 && n > tip - maxBlocks && found.length < limit; n -= 50) {
-      const numbers = Array.from({ length: Math.min(50, n + 1) }, (_, i) => n - i);
-      const blocks = await Promise.all(numbers.map((b) => this.block(b)));
-      for (const block of blocks) {
-        if (!block) continue;
-        for (const tx of block.transactions.slice(1)) {
-          if (found.length >= limit) break;
-          found.push({ hash: tx.hash, blockNumber: num(block.header.number), outputs: tx.outputs.length, timestamp: this.timestampOf(block), tags: this.tagsFor(tx) });
-        }
-      }
-    }
-    return { tip, transactions: found };
+    const recent = this.index.blocks.slice(-21).reverse();
+    // Median, not mean: the devnet only mines while `offckb node` runs, so the gap across a
+    // restart would otherwise swamp the real block time.
+    const gaps = recent.slice(1).map((b, i) => recent[i].timestamp - b.timestamp).sort((a, b) => a - b);
+    const [info, epoch, pool, scripts] = await Promise.all([
+      rpc<{ chain: string; difficulty: string }>(this.url, "get_blockchain_info"),
+      rpc<{ number: string; start_number: string; length: string }>(this.url, "get_current_epoch"),
+      rpc<{ pending: string; proposed: string; min_fee_rate: string }>(this.url, "tx_pool_info"),
+      Promise.all(this.resolver.all().filter((s) => s.source !== "genesis").map((s) => this.scriptSummary(s))),
+    ]);
+    return {
+      chain: info.chain,
+      tip,
+      tipTimestamp: recent[0]?.timestamp ?? null,
+      blockTime: gaps.length ? gaps[Math.floor(gaps.length / 2)] : null,
+      epoch: { number: num(epoch.number), index: tip - num(epoch.start_number), length: num(epoch.length) },
+      difficulty: BigInt(info.difficulty).toString(),
+      transactionCount: this.index.txs.length,
+      pool: { pending: num(pool.pending), proposed: num(pool.proposed), minFeeRate: num(pool.min_fee_rate) },
+      knownScripts: { genesis: this.resolver.all().filter((s) => s.source === "genesis").length, project: scripts.length },
+      blocks: recent.slice(0, 10).map((b) => this.blockRow(b)),
+      transactions: this.index.txs.slice(-10).reverse(),
+      scripts,
+      resets: this.index.resets,
+    };
   }
 
   // A project script is only usable if the cell its deployment points at is still live.
@@ -142,25 +172,79 @@ export class Explorer {
     return { name: s.name, source: s.source, codeHash: s.codeHash, hashType: s.hashType, location: s.location, deployed, asType, asLock };
   }
 
+  // ---- lists ----------------------------------------------------------------------------
+
+  private blockRow(b: BlockSummary) {
+    return { ...b, miner: b.miner ? addressOf(b.miner) : null };
+  }
+
+  async blockList(pageNo: number, size: number) {
+    await this.tip();
+    const p = page(this.index.blocks, pageNo, size);
+    // Rewards are only known once a block is finalized, 11 blocks later on a devnet.
+    const states = await rpcBatch<EconomicState | null>(this.url, p.items.map((b) => ["get_block_economic_state", [b.hash]]));
+    return {
+      ...p,
+      items: p.items.map((b, i) => ({ ...this.blockRow(b), reward: states[i] ? minerReward(states[i]!).toString() : null })),
+    };
+  }
+
+  async transactionList(pageNo: number, size: number) {
+    await this.tip();
+    return page(this.index.txs, pageNo, size);
+  }
+
+  // Transactions the node has accepted but not yet put in a block.
+  async pool() {
+    const [info, raw] = await Promise.all([
+      rpc<{ pending: string; proposed: string; orphan: string; min_fee_rate: string; total_tx_size: string; total_tx_cycles: string }>(this.url, "tx_pool_info"),
+      rpc<{ pending: Record<string, PoolEntry>; proposed: Record<string, PoolEntry> }>(this.url, "get_raw_tx_pool", [true]),
+    ]);
+    const entries = [
+      ...Object.entries(raw.pending).map(([hash, e]) => ({ hash, status: "pending", e })),
+      ...Object.entries(raw.proposed).map(([hash, e]) => ({ hash, status: "proposed", e })),
+    ];
+    const txs = await Promise.all(entries.map(({ hash }) => rpc<TxResponse | null>(this.url, "get_transaction", [hash])));
+    return {
+      info: {
+        pending: num(info.pending), proposed: num(info.proposed), orphan: num(info.orphan),
+        minFeeRate: num(info.min_fee_rate), totalSize: num(info.total_tx_size), totalCycles: num(info.total_tx_cycles),
+      },
+      transactions: entries.map(({ hash, status, e }, i) => {
+        const t = txs[i]?.transaction;
+        const size = num(e.size);
+        return {
+          hash, status, fee: BigInt(e.fee).toString(), size, cycles: num(e.cycles), timestamp: num(e.timestamp),
+          feeRate: size ? Number((BigInt(e.fee) * 1000n) / BigInt(size)) : null,
+          inputs: t?.inputs.length ?? null, outputs: t?.outputs.length ?? null, tags: t ? this.tagsFor(t) : [],
+        };
+      }).sort((a, b) => b.timestamp - a.timestamp),
+    };
+  }
+
   // ---- transaction ----------------------------------------------------------------------
 
   async transaction(hash: string) {
-    // The spender search below needs a current tip for its block range.
     const tip = await this.tip();
     const res = await rpc<TxResponse | null>(this.url, "get_transaction", [hash]);
-    if (!res?.transaction) return null;
+    if (!res) return null;
+    // The node remembers recently rejected transactions and why, but not their contents.
+    if (!res.transaction) {
+      if (res.tx_status.status === "rejected") return { hash, status: "rejected", reason: res.tx_status.reason ?? null, rejected: true };
+      return null;
+    }
     const tx = res.transaction;
     const blockNumber = res.tx_status.block_number ? num(res.tx_status.block_number) : null;
     const block = blockNumber !== null ? await this.block(blockNumber) : null;
     const cellbase = tx.inputs.length === 1 && tx.inputs[0].previous_output.tx_hash === ZERO_HASH;
 
-    const inputs: (CellView | Unresolved)[] = await Promise.all(tx.inputs.map(async ({ previous_output: p }) => {
+    const inputs: (CellView | Unresolved)[] = await Promise.all(tx.inputs.map(async ({ previous_output: p, since }) => {
       if (p.tx_hash === ZERO_HASH) return { unresolved: "Cellbase: newly mined CKB, no input cell" };
       const prev = await rpc<TxResponse | null>(this.url, "get_transaction", [p.tx_hash]);
       const i = num(p.index);
-      const out = prev?.transaction.outputs[i];
+      const out = prev?.transaction?.outputs[i];
       if (!out) return { unresolved: `${p.tx_hash}:${i}` };
-      return { ...this.cell(out, prev!.transaction.outputs_data[i]), outPoint: { txHash: p.tx_hash, index: i } };
+      return { ...this.cell(out, prev!.transaction!.outputs_data[i]), outPoint: { txHash: p.tx_hash, index: i }, since: decodeSince(since) };
     }));
 
     const outputs = await Promise.all(tx.outputs.map(async (o, i) => {
@@ -182,6 +266,7 @@ export class Explorer {
       confirmations: blockNumber !== null ? tip - blockNumber : null,
       status: res.tx_status.status,
       cellbase,
+      version: num(tx.version),
       fee: fee?.toString() ?? null,
       size,
       // Same unit the node's min fee rate uses: shannons per 1000 bytes.
@@ -197,35 +282,70 @@ export class Explorer {
         const header = await rpc<{ number: string } | null>(this.url, "get_header", [h]);
         return { hash: h, number: header ? num(header.number) : null };
       })),
+      witnesses: tx.witnesses.map(parseWitness),
+      changes: cellbase ? [] : balanceChanges(resolvedInputs, outputs),
       inputs,
       outputs,
     };
+  }
+
+  // The transaction exactly as the node returns it, for copying or saving.
+  async rawTransaction(hash: string) {
+    const res = await rpc<TxResponse | null>(this.url, "get_transaction", [hash]);
+    return res?.transaction ?? null;
   }
 
   // ---- block ----------------------------------------------------------------------------
 
   async blockDetail(id: string) {
     const tip = await this.tip();
-    let block: RpcBlock | null;
-    if (/^0x[0-9a-f]{64}$/i.test(id)) block = await rpc<RpcBlock | null>(this.url, "get_block", [id.toLowerCase()]);
-    else block = Number(id) <= tip ? await this.block(Number(id)) : null;
-    if (!block) return null;
-    const n = num(block.header.number);
-    const header = block.header as unknown as { parent_hash: string; epoch: string; timestamp: string };
+    const hash = /^0x[0-9a-f]{64}$/i.test(id) ? id.toLowerCase() : Number(id) <= tip ? this.index.blocks[Number(id)]?.hash : null;
+    if (!hash) return null;
+    const [withCycles, packed, state] = await rpcBatch<unknown>(this.url, [
+      ["get_block", [hash, null, true]],
+      ["get_block", [hash, "0x0"]],
+      ["get_block_economic_state", [hash]],
+    ]) as [{ block: FullBlock; cycles: string[] | null } | null, string | null, EconomicState | null];
+    if (!withCycles) return null;
+    const b = withCycles.block;
+    const h = b.header;
+    const n = num(h.number);
+    const cellbase = parseCellbaseWitness(b.transactions[0]?.witnesses[0]);
+    const reward = state && {
+      total: minerReward(state).toString(),
+      base: BigInt(state.miner_reward.primary).toString(),
+      secondary: BigInt(state.miner_reward.secondary).toString(),
+      committed: BigInt(state.miner_reward.committed).toString(),
+      proposal: BigInt(state.miner_reward.proposal).toString(),
+      fees: BigInt(state.txs_fee).toString(),
+    };
+    const cycles = withCycles.cycles ?? [];
     return {
       number: n,
-      hash: block.header.hash,
-      parentHash: header.parent_hash,
-      timestamp: this.timestampOf(block),
-      epoch: epochOf(header.epoch),
+      hash: h.hash,
+      parentHash: h.parent_hash,
+      timestamp: num(h.timestamp),
+      epoch: epochOf(h.epoch),
       confirmations: tip - n,
       tip,
-      transactions: block.transactions.map((t, i) => ({
+      miner: cellbase ? addressOf(cellbase.lock) : null,
+      minerMessage: cellbase?.message || null,
+      reward,
+      finalizedIn: reward ? null : Math.max(0, n + 11 - tip),
+      difficulty: difficultyOf(h.compact_target).toString(),
+      nonce: BigInt(h.nonce).toString(),
+      size: packed ? (packed.length - 2) / 2 : null,
+      cycles: cycles.reduce((a, c) => a + num(c), 0),
+      proposals: b.proposals,
+      uncles: b.uncles.map((u) => ({ hash: u.header.hash, number: num(u.header.number) })),
+      header: h,
+      transactions: b.transactions.map((t, i) => ({
         hash: t.hash,
         cellbase: i === 0,
-        inputs: i === 0 ? 0 : (t as FullTx).inputs.length,
+        inputs: i === 0 ? 0 : t.inputs.length,
         outputs: t.outputs.length,
         capacity: t.outputs.reduce((a, o) => a + BigInt(o.capacity), 0n).toString(),
+        cycles: i === 0 ? null : cycles[i - 1] ? num(cycles[i - 1]) : null,
         tags: i === 0 ? [] : this.tagsFor(t),
       })),
     };
@@ -258,16 +378,16 @@ export class Explorer {
       tokens.set(c.type.hash, t);
     }
 
-    const transactions = await Promise.all(txPage.objects.map(async (t) => {
-      const block = await this.block(num(t.block_number));
+    const transactions = txPage.objects.map((t) => {
+      const block = this.index.blocks[num(t.block_number)];
       return {
         hash: t.tx_hash,
         blockNumber: num(t.block_number),
-        timestamp: block ? this.timestampOf(block) : null,
+        timestamp: block?.timestamp ?? null,
         spent: t.cells.filter(([io]) => io === "input").length,
         received: t.cells.filter(([io]) => io === "output").length,
       };
-    }));
+    });
 
     return {
       address: parsed.toString(),
@@ -314,13 +434,13 @@ export class Explorer {
   // ---- search ---------------------------------------------------------------------------
 
   async search(q: string): Promise<{ route: string } | { error: string }> {
-    const query = q.trim();
-    if (/^\d+$/.test(query)) return { route: `#/block/${Number(query)}` };
+    const query = q.trim().replace(/,/g, "");
+    if (/^#?\d+$/.test(query)) return { route: `#/block/${Number(query.replace("#", ""))}` };
     if (/^ck[bt]1[0-9a-z]+$/i.test(query)) return { route: `#/address/${query}` };
     if (/^0x[0-9a-f]{64}$/i.test(query)) {
       const h = query.toLowerCase();
       const tx = await rpc<TxResponse | null>(this.url, "get_transaction", [h]);
-      if (tx?.transaction) return { route: `#/tx/${h}` };
+      if (tx?.transaction || tx?.tx_status.status === "rejected") return { route: `#/tx/${h}` };
       const block = await rpc<unknown>(this.url, "get_header", [h]);
       if (block) return { route: `#/block/${h}` };
       const script = this.resolver.all().find((s) => s.codeHash === h);
@@ -355,9 +475,9 @@ export class Explorer {
     // The node's built-in indexer lists every transaction that touched this lock, so the
     // spender is the first one after creation with an input pointing back at this cell.
     let cursor: string | undefined;
-    for (let page = 0; page < 5; page++) {
+    for (let pageNo = 0; pageNo < 5; pageNo++) {
       const params: unknown[] = [
-        { script: lock, script_type: "lock", filter: { block_range: [hex(createdIn), hex(this.lastTip + 1)] }, group_by_transaction: false },
+        { script: lock, script_type: "lock", filter: { block_range: [hex(createdIn), hex(this.index.tip + 1)] }, group_by_transaction: false },
         "asc",
         "0x64",
       ];
@@ -366,7 +486,7 @@ export class Explorer {
       for (const o of res.objects) {
         if (o.io_type !== "input") continue;
         const spender = await rpc<TxResponse | null>(this.url, "get_transaction", [o.tx_hash]);
-        const input = spender?.transaction.inputs[num(o.io_index)];
+        const input = spender?.transaction?.inputs[num(o.io_index)];
         if (input && input.previous_output.tx_hash === outPoint.txHash && num(input.previous_output.index) === outPoint.index)
           return { state: "spent", by: o.tx_hash };
       }
@@ -415,7 +535,7 @@ export class Explorer {
       capacity: BigInt(out.capacity).toString(),
       lock,
       type,
-      address: ccc.Address.fromScript(toCcc(out.lock), DEVNET_PREFIX).toString(),
+      address: addressOf(out.lock),
       dataLength,
       dataPreview: data.slice(0, 2 + 512),
       dataHash: hashOfData,
@@ -426,6 +546,32 @@ export class Explorer {
 }
 
 const short = (h: string) => `${h.slice(0, 10)}…${h.slice(-6)}`;
+
+const minerReward = (s: EconomicState) =>
+  BigInt(s.miner_reward.primary) + BigInt(s.miner_reward.secondary) + BigInt(s.miner_reward.committed) + BigInt(s.miner_reward.proposal);
+
+// Net effect of a transaction on each address: CKB and every token it holds.
+function balanceChanges(inputs: CellView[], outputs: CellView[]) {
+  const by = new Map<string, { address: string; lockName: string | null; ckb: bigint; tokens: Map<string, { standard: string; type: ScriptView; amount: bigint }> }>();
+  const apply = (c: CellView, sign: 1n | -1n) => {
+    const e = by.get(c.address) ?? { address: c.address, lockName: c.lock.resolved.inner?.name ?? c.lock.resolved.name, ckb: 0n, tokens: new Map() };
+    e.ckb += sign * BigInt(c.capacity);
+    if (c.decoded?.kind === "udt" && c.type) {
+      const t = e.tokens.get(c.type.hash) ?? { standard: c.decoded.standard, type: c.type, amount: 0n };
+      t.amount += sign * BigInt(c.decoded.amount);
+      e.tokens.set(c.type.hash, t);
+    }
+    by.set(c.address, e);
+  };
+  inputs.forEach((c) => apply(c, -1n));
+  outputs.forEach((c) => apply(c, 1n));
+  return [...by.values()].map((e) => ({
+    address: e.address,
+    lockName: e.lockName,
+    ckb: e.ckb.toString(),
+    tokens: [...e.tokens.values()].filter((t) => t.amount !== 0n).map((t) => ({ standard: t.standard, type: t.type, amount: t.amount.toString() })),
+  }));
+}
 
 // Cells we can't decode still say something when their type is one of your own scripts
 // (or a JS contract run by ckb_js_vm): the feed shows the contract's name.

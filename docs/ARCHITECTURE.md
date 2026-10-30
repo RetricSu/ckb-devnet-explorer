@@ -7,19 +7,27 @@ browser ──HTTP──▶ Node server (src/server.ts) ──JSON-RPC──▶ 
                         └─ at startup: <project>/deployment/scripts.json (your scripts)
 ```
 
-One Node process. No database, no background sync: every page asks the node for what it needs.
-A devnet gets wiped by `offckb clean` all the time, so anything that has to index the chain first
-would spend most of its life re-indexing.
+One Node process. No database: detail pages ask the node for what they need. A devnet gets wiped by
+`offckb clean` all the time, so anything that has to persist an index would spend most of its life
+re-indexing.
+
+Lists (all blocks, all transactions) still need to know the whole chain, so the server keeps a small
+in-memory index: one summary per block and per transaction. It reads the chain in JSON-RPC batches of
+200 blocks (4,500 blocks take about 0.3 s), then follows the tip every 3 seconds. If the block it last
+read has a different hash, the chain was reset, so it throws the index away and builds it again; the
+page shows a toast when that happens.
 
 ## Modules
 
 | File | Job |
 |------|-----|
-| `src/rpc.ts` | Minimal JSON-RPC client over `fetch`. |
+| `src/rpc.ts` | Minimal JSON-RPC client over `fetch`, with batch requests. |
+| `src/chain.ts` | The in-memory chain index (block and transaction summaries, reset detection) and the cellbase witness parser that finds a block's miner. |
+| `src/txfields.ts` | Packed fields: `since` (RFC 0017), `WitnessArgs`, epoch numbers, difficulty from `compact_target`. |
 | `src/scripts.ts` | Loads script names: genesis scripts from `offckb system-scripts -o` (asked fresh every run, never cached on disk) and each project's `deployment/scripts.json`. |
 | `src/resolver.ts` | Turns a script (`code_hash` + `hash_type`) into a name. Also indexes code hashes the other way round to recognise the cells that *hold* the code. Looks through `ckb_js_vm` to the JS contract it runs. |
 | `src/decode.ts` | Reads cell data by the standard its type script implements: Nervos DAO, sUDT, xUDT, Spore, Spore cluster, Type ID. |
-| `src/explorer.ts` | Builds the views: overview, transaction (every input traced back to the cell it consumed, live/spent status of every output, fee, size, cycles, cell deps), block, address, script, and search. Caches blocks (they never change on a devnet) and drops the cache if the tip goes backwards. |
+| `src/explorer.ts` | Builds the views: home, block and transaction lists, the tx pool, transaction (every input traced back to the cell it consumed, live/spent status of every output, balance changes, witnesses, fee, size, cycles, deps), block (miner, reward, size, cycles), address, script, and search. |
 | `src/server.ts` | `node:http` server: the JSON API below and the static files. |
 | `src/web/` | The page. Plain HTML/CSS/JS modules, no build step, system fonts only, so it works offline. `js/ui.js` has the shared pieces (capacity bar, cell row, script name), `js/pages.js` one function per page, `js/app.js` the hash router, search, node status and live refresh. |
 | `src/cli.ts` | `serve` starts the server; with no command it prints recent transactions to the terminal. |
@@ -29,15 +37,28 @@ would spend most of its life re-indexing.
 
 | Route | Returns |
 |-------|---------|
-| `GET /api/info` | RPC URL and tip block number (the top bar polls this). |
-| `GET /api/overview` | Tip, median block time, latest blocks and transactions, your scripts with deployed/not-deployed state. |
-| `GET /api/tx/:hash` | One transaction with resolved inputs, outputs, cell deps, fee, size, cycles. |
-| `GET /api/block/:numberOrHash` | Block header fields and its transactions. |
+| `GET /api/info` | RPC URL, tip block number and how many chain resets the server has seen (the top bar polls this). |
+| `GET /api/home` | Chain stats (tip, epoch, block time, tx count, tx pool, min fee rate, difficulty), latest blocks and transactions, your scripts with deployed/not-deployed state. |
+| `GET /api/blocks?page=&size=` | Blocks, newest first, with miner, live cell change and reward. |
+| `GET /api/transactions?page=&size=` | Committed transactions (not cellbase), newest first. |
+| `GET /api/pool` | Pending and proposed transactions with fee, fee rate, size and cycles. |
+| `GET /api/tx/:hash` | One transaction with resolved inputs, outputs, balance changes, witnesses, deps, fee, size, cycles. For a rejected one, the node's reason. |
+| `GET /api/tx/:hash/raw` | The transaction exactly as the node returns it. |
+| `GET /api/block/:numberOrHash` | Header fields, miner, reward breakdown, size, cycles, proposals, uncles and transactions. |
 | `GET /api/address/:address` | Balance, live cells, token balances, recent transactions. |
 | `GET /api/script/:codeHash/:hashType` | Name, code location, cells using it as lock or type. |
 | `GET /api/search?q=` | Which page a query points at. |
 
-Every page reads straight from the node, so a page is never stale; the overview re-renders every 5 seconds.
+Detail pages read straight from the node, so they're never stale. Home, the first page of each list, the
+pending tab and a pending transaction re-render every 5 seconds.
+
+**Block reward and miner.** The miner is the lock in the cellbase witness (a molecule `CellbaseWitness`,
+whose message offckb's node fills with its version). The reward comes from `get_block_economic_state`, which
+only answers once the block is finalized, 11 blocks later; until then the page says how many blocks are left.
+
+**Rejected transactions.** `get_transaction` on a hash the node rejected recently returns no transaction
+but a status of `rejected` and a JSON reason (`{"type": "Resolve", "description": ...}`). The page shows the
+type in plain words and the raw description.
 
 ## How the hard parts work
 

@@ -41,7 +41,7 @@ export const absolute = (ms) => (ms == null ? "—" : ms === 0 ? "Genesis, no ti
 
 // ---- links ----
 
-export const txLink = (h, { head, tail } = {}) => `<a class="mono" href="#/tx/${h}" title="${h}">${short(h, head, tail)}</a>`;
+export const txLink = (h, { head = 8, tail = 6 } = {}) => `<a class="mono" href="#/tx/${h}" title="${h}">${short(h, head, tail)}</a>`;
 export const blockLink = (n) => `<a class="mono" href="#/block/${n}">#${int(n)}</a>`;
 export const addrLink = (a, { full = false } = {}) => `<a class="mono" href="#/address/${a}" title="${a}">${full ? a : short(a, 14, 8)}</a>`;
 export const outPointLink = (op) => `<a class="mono" href="#/tx/${op.txHash}" title="${op.txHash}:${op.index}">${short(op.txHash, 8, 4)}:${op.index}</a>`;
@@ -88,6 +88,74 @@ export function panel({ title, count, aside, body, empty }) {
 }
 
 export const tags = (list) => (list?.length ? `<span class="tags">${list.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</span>` : "");
+
+// What a transaction did, for list rows: its tags, or a plain description.
+export const txKind = (t) => tags(t.tags) || `<span class="muted">${t.blockNumber === 0 ? "Genesis" : "CKB transfer"}</span>`;
+
+// A table inside a panel. rows: array of <tr> strings. cols: [label, className?].
+export function table(cols, rows) {
+  return `<div class="table-scroll"><table class="table">
+    <thead><tr>${cols.map(([label, cls]) => `<th${cls ? ` class="${cls}"` : ""}>${label}</th>`).join("")}</tr></thead>
+    <tbody>${rows.join("")}</tbody></table></div>`;
+}
+
+// A headline number on the home page.
+export function stat({ label, value, sub, href, extra = "" }) {
+  const inner = `<span class="stat-label">${label}</span><span class="stat-value">${value}</span>${sub ? `<span class="stat-sub">${sub}</span>` : ""}${extra}`;
+  return href ? `<a class="stat" href="${href}">${inner}</a>` : `<div class="stat">${inner}</div>`;
+}
+
+export const progress = (fraction, label) =>
+  `<span class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(fraction * 100)}" aria-label="${esc(label)}"><i style="width:${(Math.min(1, Math.max(0, fraction)) * 100).toFixed(1)}%"></i></span>`;
+
+// Tabs are plain links, so every tab has its own URL.
+export function tabs(items) {
+  return `<nav class="tabs" aria-label="Views">${items.map(({ label, href, current, count }) =>
+    `<a href="${href}"${current ? ' aria-current="page"' : ""}>${label}${count != null ? ` <span class="count">${int(count)}</span>` : ""}</a>`).join("")}</nav>`;
+}
+
+// Page links for a list. base is the route without a query string, e.g. "#/blocks".
+export function pager({ page, pages, size, total }, base, extra = "") {
+  const href = (p, s = size) => `${base}?${extra ? `${extra}&` : ""}page=${p}&size=${s}`;
+  const link = (p, label, aria) => p < 1 || p > pages || p === page
+    ? `<span class="btn" aria-disabled="true">${label}</span>`
+    : `<a class="btn" href="${href(p)}" aria-label="${aria}">${label}</a>`;
+  const sizes = [10, 20, 50, 100].map((s) => `<option value="${href(1, s)}"${s === size ? " selected" : ""}>${s} per page</option>`).join("");
+  return `<div class="pager">
+    <span class="muted">${int(total)} total</span>
+    <span class="pager-links">
+      ${link(1, "First", "First page")}${link(page - 1, "‹", "Previous page")}
+      <span class="pager-pos">Page <b>${int(page)}</b> of ${int(pages)}</span>
+      ${link(page + 1, "›", "Next page")}${link(pages, "Last", "Last page")}
+    </span>
+    <label class="pager-size"><span class="sr-only">Rows per page</span><select data-nav>${sizes}</select></label>
+  </div>`;
+}
+
+// A signed CKB amount: green when an address gains, red when it pays.
+export function delta(shannons) {
+  const v = BigInt(shannons);
+  if (v === 0n) return `<span class="delta">0 <small class="muted">CKB</small></span>`;
+  return `<span class="delta ${v > 0n ? "pos" : "neg"}">${v > 0n ? "+" : "−"}${ckb(v > 0n ? v : -v)}</span>`;
+}
+
+export const tokenDelta = (amount) => {
+  const v = BigInt(amount);
+  return `<span class="delta ${v > 0n ? "pos" : "neg"}">${v > 0n ? "+" : "−"}${(v > 0n ? v : -v).toLocaleString("en-US")}</span>`;
+};
+
+// ---- since (RFC 0017) ----
+
+export function sinceText(s) {
+  if (!s || s.kind === "none") return "";
+  const rel = s.relative ? "relative" : "absolute";
+  switch (s.kind) {
+    case "block": return s.relative ? `${int(s.value)} blocks after the cell was created` : `not before block #${int(s.value)}`;
+    case "epoch": return `${rel}: epoch ${int(s.number)}${s.length ? ` + ${s.index}/${s.length}` : ""}`;
+    case "timestamp": return s.relative ? `${int(s.seconds)} s after the cell was created` : `not before ${new Date(s.seconds * 1000).toLocaleString()}`;
+    default: return `unreadable since ${esc(s.raw)}`;
+  }
+}
 
 // ---- the capacity bar: what a cell's capacity pays for (1 CKB pays for 1 byte) ----
 
@@ -203,6 +271,7 @@ function rawFields(cell) {
   const script = (label, s) => (s ? row(`${label} code hash`, s.code_hash) + row(`${label} hash type`, s.hash_type) + row(`${label} args`, s.args) + row(`${label} script hash`, s.hash) : "");
   return `<details class="raw detail-block"><summary class="muted">Raw fields</summary><dl style="margin-top:10px">
     ${row("Out point", cell.outPoint ? `${cell.outPoint.txHash}:${cell.outPoint.index}` : "—")}
+    ${cell.since ? row("Since", cell.since.kind === "none" ? "0 (no time lock)" : esc(sinceText(cell.since))) : ""}
     ${row("Capacity", `${BigInt(cell.capacity).toLocaleString("en-US")} shannons`)}
     ${row("Address", cell.address)}
     ${script("Lock", cell.lock)}${script("Type", cell.type)}
@@ -214,7 +283,10 @@ function rawFields(cell) {
 const chevron = `<svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 function stateCell(cell, role) {
-  if (role === "input") return cell.outPoint ? `<span class="from">from ${outPointLink(cell.outPoint)}</span>` : "";
+  if (role === "input") {
+    const since = sinceText(cell.since);
+    return `<span class="from">${cell.outPoint ? `from ${outPointLink(cell.outPoint)}` : ""}${since ? `<span class="since" title="This input can't be spent before this point (since field)">⏱ ${since}</span>` : ""}</span>`;
+  }
   const s = cell.status;
   if (!s) return "";
   if (s.state === "live") return `<span class="pill ok" title="Not consumed by any transaction yet">Live</span>`;
