@@ -139,7 +139,7 @@ code { font: 13px var(--mono); background: var(--input); padding: 1px 5px; borde
 .faucet-off { margin: 20px 0 0; text-align: left; }
 .faucet-form { display: grid; gap: 16px; justify-items: center; width: 100%; max-width: 640px; margin-top: 28px; }
 .faucet-row { display: flex; align-items: center; gap: 14px; width: 100%; }
-.faucet-row label, .faucet-label { flex: 0 0 96px; text-align: right; font-size: 14px; color: rgba(255, 255, 255, .85); }
+.faucet-row > label, .faucet-label { flex: 0 0 96px; text-align: right; font-size: 14px; color: rgba(255, 255, 255, .85); }
 .faucet-row input[name="address"] { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 0; border-radius: 4px; background: #fff; color: var(--strong); font: 14px var(--mono); }
 .faucet-row input:focus { outline: 2px solid var(--primary); outline-offset: 0; }
 .faucet-amounts { border-color: rgba(255, 255, 255, .3); }
@@ -467,7 +467,7 @@ details.hex code { display: block; margin-top: 6px; background: none; padding: 0
   .faucet-hero h1 { font-size: 26px; }
   .faucet-row { flex-direction: column; align-items: stretch; gap: 6px; }
   .faucet-row input[name="address"] { flex: none; }
-  .faucet-row label, .faucet-label { flex: none; text-align: left; }
+  .faucet-row > label, .faucet-label { flex: none; text-align: left; }
   .faucet-amounts { align-self: flex-start; }
   .faucet-amounts span { padding: 8px 12px; }
   .pop-menu { left: auto; right: 0; transform: none; }
