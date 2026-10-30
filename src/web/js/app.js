@@ -14,9 +14,11 @@ const routes = [
   [/^\/transactions$/, (_, q) => pages.transactions(q), "transactions"],
   [/^\/tx\/(0x[0-9a-f]{64})$/i, (m) => pages.transaction(m[1].toLowerCase()), "transactions"],
   [/^\/block\/(\d+|0x[0-9a-f]{64})$/i, (m) => pages.block(m[1]), "blocks"],
-  [/^\/address\/(ck[bt]1[0-9a-z]+)$/i, (m) => pages.address(m[1]), null],
-  [/^\/script\/(0x[0-9a-f]{64})\/(type|data|data1|data2)$/i, (m) => pages.script(m[1].toLowerCase(), m[2]), null],
+  [/^\/address\/(ck[bt]1[0-9a-z]+)$/i, (m, q) => pages.address(m[1], q), null],
+  [/^\/script\/(0x[0-9a-f]{64})\/(type|data|data1|data2)$/i, (m, q) => pages.script(m[1].toLowerCase(), m[2], q), "scripts"],
   [/^\/faucet$/, (_, q) => pages.faucet(q), "faucet"],
+  [/^\/scripts$/, (_, q) => pages.scripts(q), "scripts"],
+  [/^\/accounts$/, () => pages.accounts(), "accounts"],
 ];
 
 let refreshTimer = null;

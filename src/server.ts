@@ -40,8 +40,10 @@ export function startServer(explorer: Explorer, faucet: Faucet, port: number, rp
     [/^\/api\/tx\/(0x[0-9a-fA-F]{64})\/raw$/, (m) => explorer.rawTransaction(m[1].toLowerCase()), noTx],
     [/^\/api\/tx\/(0x[0-9a-fA-F]{64})$/, (m) => explorer.transaction(m[1].toLowerCase()), noTx],
     [/^\/api\/block\/(\d+|0x[0-9a-fA-F]{64})$/, (m) => explorer.blockDetail(m[1]), (m) => `Block ${m[1]} doesn't exist on this devnet yet.`],
-    [/^\/api\/address\/(ck[bt]1[0-9a-z]+)$/i, (m) => explorer.address(m[1]), (m) => `Couldn't read address ${m[1]}.`],
-    [/^\/api\/script\/(0x[0-9a-fA-F]{64})\/(type|data|data1|data2)$/, (m) => explorer.script(m[1], m[2]), () => ""],
+    [/^\/api\/address\/(ck[bt]1[0-9a-z]+)$/i, (m, url) => explorer.address(m[1], url.searchParams.get("tab") ?? "", ...pageArgs(url)), (m) => `Couldn't read address ${m[1]}.`],
+    [/^\/api\/script\/(0x[0-9a-fA-F]{64})\/(type|data|data1|data2)$/, (m, url) => explorer.script(m[1], m[2], url.searchParams.get("tab") ?? "", ...pageArgs(url)), () => ""],
+    [/^\/api\/scripts$/, () => explorer.scripts(), () => ""],
+    [/^\/api\/accounts$/, () => explorer.accounts(), () => ""],
     [/^\/api\/faucet$/, () => faucetStatus(), () => ""],
     [/^\/api\/search$/, (_, url) => explorer.search(url.searchParams.get("q") ?? ""), () => ""],
   ];

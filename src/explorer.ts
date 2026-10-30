@@ -5,6 +5,8 @@ import { dataHash, decodeByType, scriptHash, type Decoded } from "./decode.ts";
 import { ChainIndex, parseCellbaseWitness, type BlockSummary, type TxSummary } from "./chain.ts";
 import { decodeSince, difficultyOf, epochOf, parseWitness, type Since } from "./txfields.ts";
 import type { KnownScript } from "./scripts.ts";
+import { ACCOUNT_ROLES, MINER_ARGS, offckbAccounts } from "./accounts.ts";
+import { FAUCET_ACCOUNT } from "./faucet.ts";
 
 const ZERO_HASH = "0x" + "0".repeat(64);
 const hex = (n: number | bigint) => "0x" + n.toString(16);
@@ -46,6 +48,7 @@ type TxStatus = { status: string; block_number: string | null; block_hash?: stri
 type TxResponse = { transaction: FullTx | null; cycles?: string | null; tx_status: TxStatus };
 type IndexerCell = { block_number: string; out_point: { tx_hash: string; index: string }; output: RpcOutput; output_data: string | null };
 type SearchKey = Record<string, unknown>;
+type GroupedTx = { tx_hash: string; block_number: string; cells: [string, string][] };
 type PoolEntry = { cycles: string; size: string; fee: string; timestamp: string; ancestors_count: string };
 type EconomicState = {
   issuance: { primary: string; secondary: string };
@@ -94,6 +97,7 @@ export class Explorer {
     this.index = new ChainIndex(url, (b) => this.summarize(b as unknown as FullBlock), () => {
       this.blocks.clear();
       this.tags.clear();
+      this.txs.clear();
     });
   }
 
@@ -396,84 +400,214 @@ export class Explorer {
     };
   }
 
+  // ---- indexer helpers ------------------------------------------------------------------
+
+  // Everything the built-in indexer has for a search key, newest first, 1,000 per request.
+  // A devnet is small enough to read whole, which gives exact totals and real pagination.
+  private async indexerAll<T>(method: "get_cells" | "get_transactions", key: SearchKey, max = 50_000): Promise<T[]> {
+    const out: T[] = [];
+    let cursor: string | undefined;
+    while (out.length < max) {
+      const params: unknown[] = [key, "desc", "0x3e8"];
+      if (cursor) params.push(cursor);
+      const res = await rpc<{ objects: T[]; last_cursor: string }>(this.url, method, params);
+      out.push(...res.objects);
+      if (res.objects.length < 1000) break;
+      cursor = res.last_cursor;
+    }
+    return out;
+  }
+
+  // Committed transactions never change, so they're cached (until a chain reset).
+  private txs = new Map<string, FullTx>();
+  private async fullTx(hash: string): Promise<FullTx | null> {
+    if (!this.txs.has(hash)) {
+      const res = await rpc<TxResponse | null>(this.url, "get_transaction", [hash]);
+      if (!res?.transaction || res.tx_status.status !== "committed") return res?.transaction ?? null;
+      if (this.txs.size > 5000) this.txs.delete(this.txs.keys().next().value!);
+      this.txs.set(hash, res.transaction);
+    }
+    return this.txs.get(hash)!;
+  }
+
+  // How much CKB a lock gained or lost in one transaction: its outputs minus the inputs it spent.
+  private async lockChange(t: GroupedTx): Promise<bigint> {
+    const tx = await this.fullTx(t.tx_hash);
+    if (!tx) return 0n;
+    let change = 0n;
+    for (const [io, index] of t.cells) {
+      const i = num(index);
+      if (io === "output") change += BigInt(tx.outputs[i].capacity);
+      else {
+        const prev = tx.inputs[i].previous_output;
+        const src = await this.fullTx(prev.tx_hash);
+        if (src) change -= BigInt(src.outputs[num(prev.index)].capacity);
+      }
+    }
+    return change;
+  }
+
+  private txRow(t: GroupedTx) {
+    const n = num(t.block_number);
+    return { hash: t.tx_hash, blockNumber: n, timestamp: this.index.blocks[n]?.timestamp ?? null };
+  }
+
   // ---- address --------------------------------------------------------------------------
 
-  async address(address: string) {
+  async address(address: string, tab: string, pageNo: number, size: number) {
     const tip = await this.tip();
     const parsed = await ccc.Address.fromString(address, DEVNET_PREFIX);
     const lock: RpcScript = { code_hash: parsed.script.codeHash, hash_type: parsed.script.hashType, args: parsed.script.args };
     const key = { script: lock, script_type: "lock" };
 
-    const [capacity, cellsPage, txPage] = await Promise.all([
+    const [capacity, rawCells, rawTxs] = await Promise.all([
       rpc<{ capacity: string } | null>(this.url, "get_cells_capacity", [key]),
-      rpc<{ objects: IndexerCell[] }>(this.url, "get_cells", [key, "desc", "0xc8"]),
-      rpc<{ objects: { tx_hash: string; block_number: string; cells: [string, string][] }[] }>(
-        this.url, "get_transactions", [{ ...key, group_by_transaction: true }, "desc", "0x19"]),
+      this.indexerAll<IndexerCell>("get_cells", key),
+      this.indexerAll<GroupedTx>("get_transactions", { ...key, group_by_transaction: true }),
     ]);
-
-    const cells = cellsPage.objects.map((c) => this.indexerCell(c, { state: "live" }));
+    const cells = rawCells.map((c) => this.indexerCell(c, { state: "live" }));
 
     // Token balances: sum every UDT cell this address holds, per token (its type script).
     const tokens = new Map<string, { standard: string; owner: string; amount: bigint; cells: number; type: ScriptView }>();
+    let daoDeposited = 0n;
+    let daoWithdrawing = 0n;
     for (const c of cells) {
+      if (c.decoded?.kind === "dao-deposit") daoDeposited += BigInt(c.capacity);
+      if (c.decoded?.kind === "dao-withdrawing") daoWithdrawing += BigInt(c.capacity);
       if (c.decoded?.kind !== "udt" || !c.type) continue;
       const t = tokens.get(c.type.hash) ?? { standard: c.decoded.standard, owner: c.decoded.owner, amount: 0n, cells: 0, type: c.type };
       t.amount += BigInt(c.decoded.amount);
       t.cells += 1;
       tokens.set(c.type.hash, t);
     }
+    const sameLock = (s: RpcScript | null) => !!s && s.code_hash === lock.code_hash && s.hash_type === lock.hash_type && s.args === lock.args;
 
-    const transactions = txPage.objects.map((t) => {
-      const block = this.index.blocks[num(t.block_number)];
-      return {
-        hash: t.tx_hash,
-        blockNumber: num(t.block_number),
-        timestamp: block?.timestamp ?? null,
-        spent: t.cells.filter(([io]) => io === "input").length,
-        received: t.cells.filter(([io]) => io === "output").length,
-      };
-    });
+    let list: unknown = null;
+    if (tab === "cells") {
+      list = page(cells.slice().reverse(), pageNo, size);
+    } else if (tab === "tokens") {
+      list = [...tokens.values()].map((t) => ({ ...t, amount: t.amount.toString() }));
+    } else {
+      const p = page(rawTxs.slice().reverse(), pageNo, size);
+      list = { ...p, items: await Promise.all(p.items.map(async (t) => ({ ...this.txRow(t), change: (await this.lockChange(t)).toString() }))) };
+    }
 
     return {
       address: parsed.toString(),
       lock: { ...lock, resolved: this.resolver.resolve(lock), bytes: scriptBytes(lock), hash: scriptHash(lock) },
       balance: capacity ? BigInt(capacity.capacity).toString() : "0",
-      liveCells: cells.length,
-      moreCells: cellsPage.objects.length === 200,
       occupied: cells.reduce((a, c) => a + c.occupied, 0),
-      tokens: [...tokens.values()].map((t) => ({ ...t, amount: t.amount.toString() })),
-      cells: cells.slice(0, 50),
-      transactions,
+      daoDeposited: daoDeposited.toString(),
+      daoWithdrawing: daoWithdrawing.toString(),
+      blocksMined: this.index.blocks.filter((b) => sameLock(b.miner)).length,
+      account: (() => {
+        const a = offckbAccounts()?.find((x) => x.address === parsed.toString());
+        if (a) return { index: a.index, role: a.index === FAUCET_ACCOUNT ? "funds this explorer's faucet" : ACCOUNT_ROLES[a.index] ?? null };
+        return lock.args === MINER_ARGS ? { index: null, role: "the devnet miner: block rewards are paid here" } : null;
+      })(),
+      counts: { transactions: rawTxs.length, cells: cells.length, tokens: tokens.size },
+      tab: tab === "cells" || tab === "tokens" ? tab : "transactions",
+      list,
       tip,
     };
   }
 
   // ---- script ---------------------------------------------------------------------------
 
-  async script(codeHash: string, hashType: string) {
+  async script(codeHash: string, hashType: string, tab: string, pageNo: number, size: number) {
     await this.tip();
     const known = this.resolver.lookup(codeHash, hashType);
     const script: RpcScript = { code_hash: codeHash.toLowerCase(), hash_type: hashType, args: "0x" };
+    // JS contracts are found twice over: as themselves and behind ckb_js_vm.
     const prefixes = this.resolver.usagePrefixes({ codeHash: script.code_hash, hashType });
-    const [asType, asLock] = await Promise.all(
-      (["type", "lock"] as const).map(async (role) => {
-        const pages = await Promise.all(prefixes.map((prefix) => rpc<{ objects: IndexerCell[] }>(this.url, "get_cells", [
-          { script: prefix, script_type: role, script_search_mode: "prefix" }, "desc", "0x14"])));
-        return pages.flatMap((p) => p.objects).slice(0, 20).map((c) => this.indexerCell(c, { state: "live" }));
-      }),
-    );
+    const search = (role: "type" | "lock") => prefixes.map((prefix) => ({ script: prefix, script_type: role, script_search_mode: "prefix" }));
+
+    const [asType, asLock] = await Promise.all((["type", "lock"] as const).map(async (role) =>
+      (await Promise.all(search(role).map((k) => this.indexerAll<IndexerCell>("get_cells", { ...k, with_data: false })))).flat()));
+    const txs = new Map<string, GroupedTx>();
+    for (const list of await Promise.all([...search("type"), ...search("lock")].map((k) => this.indexerAll<GroupedTx>("get_transactions", { ...k, group_by_transaction: true }))))
+      for (const t of list) txs.set(t.tx_hash, t);
+    const allTxs = [...txs.values()].sort((a, b) => num(a.block_number) - num(b.block_number));
+
     const location = known?.location ?? null;
+    const locationLive = location ? (await this.liveState(location.txHash, location.index)) === "live" : null;
+    const capacityOf = (cells: IndexerCell[]) => cells.reduce((a, c) => a + BigInt(c.output.capacity), 0n).toString();
+
+    // Cells were listed without data (faster for big locks); fetch it for the page shown.
+    const cellPage = async (cells: IndexerCell[]) => {
+      const p = page(cells.slice().reverse(), pageNo, size);
+      const items = await Promise.all(p.items.map(async (c) => {
+        const tx = await this.fullTx(c.out_point.tx_hash);
+        const data = tx?.outputs_data[num(c.out_point.index)] ?? "0x";
+        return this.indexerCell({ ...c, output_data: data }, { state: "live" });
+      }));
+      return { ...p, items };
+    };
+
+    let list: unknown = null;
+    const which = ["type", "lock", "transactions", "code"].includes(tab) ? tab : asType.length || !asLock.length ? "type" : "lock";
+    if (which === "type") list = await cellPage(asType);
+    else if (which === "lock") list = await cellPage(asLock);
+    else if (which === "transactions") list = page(allTxs, pageNo, size);
+    else if (location) {
+      const tx = await this.fullTx(location.txHash);
+      const out = tx?.outputs[location.index];
+      list = out ? { ...this.cell(out, tx!.outputs_data[location.index]), outPoint: location, status: locationLive ? { state: "live" } : { state: "spent", by: null } } : null;
+    }
+    if (which === "transactions") {
+      const p = list as ReturnType<typeof page<GroupedTx>>;
+      list = { ...p, items: p.items.map((t) => this.txRow(t)) };
+    }
+
     return {
       codeHash: script.code_hash,
       hashType,
       name: known?.name ?? null,
       source: known?.source ?? null,
       location,
-      locationLive: location ? (await this.liveState(location.txHash, location.index)) === "live" : null,
-      counts: known ? { asType: await this.countCells(known, "type"), asLock: await this.countCells(known, "lock") } : null,
-      asType,
-      asLock,
+      locationLive,
+      counts: { type: asType.length, lock: asLock.length, transactions: allTxs.length },
+      capacity: { type: capacityOf(asType), lock: capacityOf(asLock) },
+      tab: which,
+      list,
     };
+  }
+
+  // ---- scripts and accounts -------------------------------------------------------------
+
+  async scripts() {
+    await this.tip();
+    const all = await Promise.all(this.resolver.all().map(async (s) => ({
+      name: s.name,
+      source: s.source,
+      codeHash: s.codeHash,
+      hashType: s.hashType,
+      location: s.location,
+      live: s.location ? (await this.liveState(s.location.txHash, s.location.index)) === "live" : null,
+      asType: await this.countCells(s, "type"),
+      asLock: await this.countCells(s, "lock"),
+    })));
+    // Your projects first, then genesis, each by name.
+    return all.sort((a, b) => Number(a.source === "genesis") - Number(b.source === "genesis") || a.name.localeCompare(b.name));
+  }
+
+  async accounts() {
+    await this.tip();
+    const list = offckbAccounts();
+    if (!list) return { available: false, accounts: [] };
+    const accounts = await Promise.all(list.map(async (a) => {
+      const parsed = (await ccc.Address.fromString(a.address, DEVNET_PREFIX)).script;
+      const lock = { code_hash: parsed.codeHash, hash_type: parsed.hashType, args: parsed.args };
+      const key = { script: lock, script_type: "lock" };
+      const [capacity, cells, txs] = await Promise.all([
+        rpc<{ capacity: string } | null>(this.url, "get_cells_capacity", [key]),
+        this.indexerAll<unknown>("get_cells", { ...key, with_data: false }),
+        this.indexerAll<unknown>("get_transactions", { ...key, group_by_transaction: true }),
+      ]);
+      const role = a.index === FAUCET_ACCOUNT ? "Funds this explorer's faucet" : ACCOUNT_ROLES[a.index] ?? null;
+      return { index: a.index, role, address: a.address, balance: capacity ? BigInt(capacity.capacity).toString() : "0", cells: cells.length, transactions: txs.length };
+    }));
+    return { available: true, faucet: FAUCET_ACCOUNT, accounts };
   }
 
   // ---- search ---------------------------------------------------------------------------

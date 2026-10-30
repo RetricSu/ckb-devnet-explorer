@@ -1,19 +1,20 @@
-import { execFile, execFileSync } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { execFile } from "node:child_process";
 import { ccc } from "@ckb-ccc/core";
 import { rpc } from "./rpc.ts";
+import { offckbAccounts } from "./accounts.ts";
 
 // The devnet faucet: sends CKB from one of offckb's prefunded test accounts.
 //
 // offckb funds 20 accounts in the devnet genesis (42,000,000 CKB each) and ships their keys in
 // its package (account/account.json); they're public and only worth anything on a local devnet.
-// The faucet uses the last one, #19, so it never spends from #0, the account most projects use.
+// The faucet uses #18: offckb gives it no role, unlike #0-#2 (its example accounts) and #19
+// (`offckb deploy`'s default deployer), so claims never drain an account your workflow uses.
 // Sending goes through `offckb transfer`, so transactions are built and signed exactly as
 // offckb does it. This is the only part of the explorer that writes to the chain, and it
 // refuses to run unless the node says it's a devnet.
 
-const ACCOUNT_INDEX = 19;
+export const FAUCET_ACCOUNT = 18;
+const ACCOUNT_INDEX = FAUCET_ACCOUNT;
 export const MIN_CKB = 61; // a plain secp256k1 cell needs 61 bytes, so 61 CKB
 export const MAX_CKB = 1_000_000;
 const DEVNET_PREFIX = { addressPrefix: "ckt" } as unknown as ccc.Client;
@@ -28,15 +29,10 @@ export class Faucet {
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private url: string) {
-    try {
-      // offckb's bin resolves to <package>/build/index.js; the accounts sit next to build/.
-      const bin = realpathSync(execFileSync("sh", ["-c", "command -v offckb"], { encoding: "utf8" }).trim());
-      const accounts = JSON.parse(readFileSync(join(dirname(dirname(bin)), "account", "account.json"), "utf8")) as Account[];
-      this.account = accounts[ACCOUNT_INDEX] ?? null;
-      if (!this.account) this.problem = `offckb's account list has no account #${ACCOUNT_INDEX}.`;
-    } catch {
-      this.problem = "Couldn't find offckb's test accounts, so the faucet is off.";
-    }
+    const accounts = offckbAccounts();
+    this.account = accounts?.[ACCOUNT_INDEX] ?? null;
+    if (!accounts) this.problem = "Couldn't find offckb's test accounts, so the faucet is off.";
+    else if (!this.account) this.problem = `offckb's account list has no account #${ACCOUNT_INDEX}.`;
   }
 
   // Forget claims from a chain that `offckb clean` wiped.

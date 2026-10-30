@@ -378,61 +378,78 @@ export async function block(id) {
 
 // ---------------------------------------------------------------- address
 
-export async function address(addr) {
-  const a = await api(`/api/address/${addr}`);
-  const tokens = a.tokens.map((t) => `<tr>
-      <td><span class="chip k-udt">${t.standard}</span> ${scriptName(t.type)}</td>
-      <td class="opt"><span class="mono" title="${t.owner}">${short(t.owner, 10, 8)}</span></td>
-      <td class="r"><b>${BigInt(t.amount).toLocaleString("en-US")}</b></td>
-      <td>${t.cells}</td>
-    </tr>`);
-  const txs = a.transactions.map((t) => `<tr>
-      <td>${txLink(t.hash, { head: 20, tail: 20 })}</td>
-      <td>${blockLink(t.blockNumber)}</td>
-      <td class="opt">${t.spent ? `spent ${plural(t.spent, "cell")}` : ""}${t.spent && t.received ? " · " : ""}${t.received ? `received ${plural(t.received, "cell")}` : ""}</td>
-      ${timeCell(t.timestamp)}
-    </tr>`);
+// Like the CKB Explorer's address page: an Overview card (balance, occupied, DAO, live cells,
+// blocks mined, lock script), then a card with tabs, each paginated.
+export async function address(addr, q) {
+  const tab = q.get("tab") ?? "";
+  const pageNo = Number(q.get("page")) || 1;
+  const size = Number(q.get("size")) || 20;
+  const a = await api(`/api/address/${addr}?tab=${encodeURIComponent(tab)}&page=${pageNo}&size=${size}`);
+  const base = `#/address/${a.address}`;
 
-  const html = `
-    ${detailCard({
-      title: "Address",
-      hash: a.address,
-      small: true,
-      actions: faucetPopover(a.address),
-      left: [
-        [`${ckbIcon} CKB Balance`, ckb(a.balance), "Capacity of every live cell this address owns"],
-        ["Occupied", `${int(a.occupied)} Bytes <small>across the cells shown</small>`],
-        ["Tokens", a.tokens.length ? plural(a.tokens.length, "kind") : '<span class="muted">none</span>'],
-      ],
-      right: [
-        ["Live Cells", `${int(a.liveCells)}${a.moreCells ? "+" : ""}`],
-        ["Lock Script", scriptName(a.lock)],
-        ["Lock Args", `<span class="mono">${short(a.lock.args, 12, 8)}</span>`],
-      ],
-    })}
-    ${a.tokens.length ? card({
-      title: "Tokens",
-      count: a.tokens.length,
-      flush: true,
-      aside: "One row per type script",
-      body: table([["Token"], ["Issuer Lock Hash", "opt"], ["Balance", "r"], ["Cells"]], tokens),
-    }) : ""}
-    ${card({
-      title: "Live Cells",
-      count: `${int(a.liveCells)}${a.moreCells ? "+" : ""}`,
-      aside: a.cells.length < a.liveCells ? `newest ${a.cells.length} shown` : "",
-      body: a.cells.length ? cellList(a.cells, { role: "output" }) : "",
-      empty: "This address owns no live cells.",
-    })}
-    ${card({
-      title: "Transactions",
-      flush: true,
-      aside: a.transactions.length === 25 ? "latest 25" : "",
-      body: a.transactions.length ? table([["Transaction Hash"], ["Height"], ["Cells", "opt"], ["Time"]], txs) : "",
-      empty: "No transactions touch this address yet.",
-    })}`;
+  const overview = detailCard({
+    title: "Address",
+    hash: a.address,
+    small: true,
+    actions: faucetPopover(a.address),
+    left: [
+      [`${ckbIcon} CKB Balance`, ckb(a.balance), "Capacity of every live cell this address owns"],
+      ["Occupied", ckb(BigInt(a.occupied) * 100000000n), "Capacity its cells need for the bytes they hold (1 CKB per byte)"],
+      ["Nervos DAO Deposit", ckb(a.daoDeposited), "Capacity in DAO deposit cells this address owns"],
+      ...(BigInt(a.daoWithdrawing) ? [["Nervos DAO Withdrawing", ckb(a.daoWithdrawing), "Deposits with a withdrawal requested, waiting for the lock period"]] : []),
+    ],
+    right: [
+      ["Live Cells", int(a.counts.cells)],
+      ["Transactions", int(a.counts.transactions)],
+      ["Blocks Mined", int(a.blocksMined), "Blocks whose cellbase names this address as the miner"],
+      ["Lock Script", scriptName(a.lock)],
+    ],
+    extra: `<details class="lock-hash">
+      <summary>Lock Script Hash</summary>
+      <div class="code-box"><span class="mono">${a.lock.hash}</span> ${copyBtn(a.lock.hash, "lock script hash")}</div>
+      <dl class="raw-inline"><dt>Code hash</dt><dd class="mono">${a.lock.code_hash}</dd><dt>Hash type</dt><dd class="mono">${esc(a.lock.hash_type)}</dd><dt>Args</dt><dd class="mono">${a.lock.args}</dd></dl>
+    </details>`,
+  });
+
+  const note = a.account
+    ? `<div class="notice info"><p>${a.account.index != null ? `This is offckb's test account <b>#${a.account.index}</b>${a.account.role ? `, ${esc(a.account.role)}` : ""}.` : `This is ${esc(a.account.role)}.`} <a href="#/accounts">All accounts</a></p></div>`
+    : "";
+
+  const tabBar = tabs([
+    { label: `Transactions (${int(a.counts.transactions)})`, href: base, current: a.tab === "transactions" },
+    { label: `Live Cells (${int(a.counts.cells)})`, href: `${base}?tab=cells`, current: a.tab === "cells" },
+    { label: `Tokens (${int(a.counts.tokens)})`, href: `${base}?tab=tokens`, current: a.tab === "tokens" },
+  ]);
+
+  let body = "";
+  let foot = "";
+  if (a.tab === "transactions") {
+    const rows = a.list.items.map((t) => `<tr>
+        <td>${txLink(t.hash, { head: 20, tail: 20 })}</td>
+        <td>${blockLink(t.blockNumber)}</td>
+        <td class="nowrap opt">${stamp(t.timestamp)}</td>
+        <td class="r">${delta(t.change)}</td>
+      </tr>`);
+    body = rows.length ? table([["Transaction Hash"], ["Height"], ["Time", "opt"], [`${ckbIcon} Change`, "r"]], rows) : empty("No transactions touch this address yet.");
+    if (a.list.total) foot = pager(a.list, base);
+  } else if (a.tab === "cells") {
+    body = a.list.items.length ? `<div class="card-pad">${cellList(a.list.items, { role: "output", indexFrom: (a.list.page - 1) * a.list.size })}</div>` : empty("This address owns no live cells.");
+    if (a.list.total) foot = pager(a.list, base, "tab=cells");
+  } else {
+    const rows = a.list.map((t) => `<tr>
+        <td><b>${t.standard}</b> ${scriptName(t.type)}</td>
+        <td class="opt"><span class="mono" title="${t.owner}">${short(t.owner, 10, 8)}</span></td>
+        <td>${int(t.cells)}</td>
+        <td class="r"><b>${BigInt(t.amount).toLocaleString("en-US")}</b></td>
+      </tr>`);
+    body = rows.length ? table([["Token"], ["Issuer Lock Hash", "opt"], ["Cells"], ["Balance", "r"]], rows) : empty("No sUDT or xUDT tokens at this address.");
+  }
+
+  const html = `${overview}${note}<section class="card flush">${tabBar}${body}${foot ? `<div class="card-foot">${foot}</div>` : ""}</section>`;
   return { title: `Address ${short(a.address, 10, 6)}`, html };
 }
+
+const empty = (text) => `<p class="card-empty" style="padding:28px 40px">${text}</p>`;
 
 // The CKB Explorer's faucet popover on address pages, here for devnet CKB.
 const faucetPopover = (addr) => addr.startsWith("ckt1") ? `<details class="pop">
@@ -446,40 +463,116 @@ const faucetPopover = (addr) => addr.startsWith("ckt1") ? `<details class="pop">
 
 // ---------------------------------------------------------------- script
 
-export async function script(codeHash, hashType) {
-  const s = await api(`/api/script/${codeHash}/${hashType}`);
-  const count = (c) => (c ? `${c.n}${c.more ? "+" : ""}` : "—");
+// Like the CKB Explorer's script page: an overview, then tabs for the cells that use the
+// script, the transactions that touched them, and the cell its code lives in.
+export async function script(codeHash, hashType, q) {
+  const pageNo = Number(q.get("page")) || 1;
+  const size = Number(q.get("size")) || 20;
+  const s = await api(`/api/script/${codeHash}/${hashType}?tab=${encodeURIComponent(q.get("tab") ?? "")}&page=${pageNo}&size=${size}`);
+  const base = `#/script/${s.codeHash}/${s.hashType}`;
   const missing = s.location && s.locationLive === false;
-  const usedBy = (c) => `${count(c)} <small>live cell${c?.n === 1 && !c.more ? "" : "s"}</small>`;
-  const html = `
-    ${detailCard({
-      title: "Script",
-      hash: s.codeHash,
-      hashText: s.name ?? "Unknown script",
-      left: [
-        ["Name", s.name ? `${esc(s.name)} ${sourceBadge(s.source)}` : '<span class="muted">Not in offckb\'s system scripts or any project passed with --project</span>'],
-        ["Code Hash", `<span class="mono" title="${s.codeHash}">${short(s.codeHash, 14, 12)}</span> ${copyBtn(s.codeHash, "code hash")}`],
-        ["Hash Type", `<span class="mono">${esc(s.hashType)}</span>`, s.hashType === "type" ? "Matched against a code cell's type script hash" : "Matched against a code cell's data hash"],
-      ],
-      right: [
-        ["Code Cell", s.location ? `${outPointLink(s.location)} ${s.locationLive ? '<span class="status ok">Live</span>' : '<span class="status bad">Missing</span>'}${s.location.depType === "depGroup" ? " <small>dep group</small>" : ""}` : '<span class="muted">Unknown</span>'],
-        ["Used as Type", usedBy(s.counts?.asType ?? (s.asType.length ? { n: s.asType.length, more: s.asType.length === 20 } : null))],
-        ["Used as Lock", usedBy(s.counts?.asLock ?? (s.asLock.length ? { n: s.asLock.length, more: s.asLock.length === 20 } : null))],
-      ],
-    })}
+
+  const overview = detailCard({
+    title: "Script",
+    hash: s.codeHash,
+    hashText: s.name ?? "Unknown script",
+    left: [
+      ["Name", s.name ? `${esc(s.name)}` : '<span class="muted">Not in offckb\'s system scripts or any project passed with --project</span>'],
+      ["Source", s.source === "genesis" ? "Built into the devnet (genesis)" : s.source ? `Your project <b>${esc(s.source)}</b>` : "—"],
+      ["Code Hash", `<span class="mono" title="${s.codeHash}">${short(s.codeHash, 14, 12)}</span> ${copyBtn(s.codeHash, "code hash")}`],
+      ["Hash Type", `<span class="mono">${esc(s.hashType)}</span>`, s.hashType === "type" ? "Matched against a code cell's type script hash" : "Matched against a code cell's data hash"],
+    ],
+    right: [
+      ["Code Cell", s.location ? `${outPointLink(s.location)} ${s.locationLive ? '<span class="status">Live</span>' : '<span class="status bad">Missing</span>'}${s.location.depType === "depGroup" ? " <small>dep group</small>" : ""}` : '<span class="muted">Unknown</span>'],
+      ["Live Cells as Type", `${int(s.counts.type)} <small>holding ${ckb(s.capacity.type)}</small>`],
+      ["Live Cells as Lock", `${int(s.counts.lock)} <small>holding ${ckb(s.capacity.lock)}</small>`],
+      ["Transactions", int(s.counts.transactions), "Transactions that created or spent a cell using this script"],
+    ],
+  });
+
+  const tabBar = tabs([
+    { label: `Cells as Type (${int(s.counts.type)})`, href: `${base}?tab=type`, current: s.tab === "type" },
+    { label: `Cells as Lock (${int(s.counts.lock)})`, href: `${base}?tab=lock`, current: s.tab === "lock" },
+    { label: `Transactions (${int(s.counts.transactions)})`, href: `${base}?tab=transactions`, current: s.tab === "transactions" },
+    ...(s.location ? [{ label: "Code Cell", href: `${base}?tab=code`, current: s.tab === "code" }] : []),
+  ]);
+
+  let body = "";
+  let foot = "";
+  if (s.tab === "type" || s.tab === "lock") {
+    body = s.list.items.length
+      ? `<div class="card-pad">${cellList(s.list.items, { role: "output", indexFrom: (s.list.page - 1) * s.list.size })}</div>`
+      : empty(`No live cell uses this script as its ${s.tab}.`);
+    if (s.list.total) foot = pager(s.list, base, `tab=${s.tab}`);
+  } else if (s.tab === "transactions") {
+    const rows = s.list.items.map((t) => `<tr>
+        <td>${txLink(t.hash, { head: 20, tail: 20 })}</td>
+        <td>${blockLink(t.blockNumber)}</td>
+        <td class="nowrap">${stamp(t.timestamp)}</td>
+      </tr>`);
+    body = rows.length ? table([["Transaction Hash"], ["Height"], ["Time"]], rows) : empty("No transactions have used this script yet.");
+    if (s.list.total) foot = pager(s.list, base, "tab=transactions");
+  } else {
+    body = s.list ? `<div class="card-pad">${cellList([s.list], { role: "output", openAll: true })}</div>` : empty("The code cell isn't on this chain.");
+  }
+
+  const html = `${overview}
     ${missing ? `<div class="notice warn"><p><b>This deployment isn't on the chain.</b> The deployment file points at a code cell this devnet doesn't have, usually because <code>offckb clean</code> reset the chain after it was deployed. Run <code>offckb deploy</code> again and restart the explorer.</p></div>` : ""}
-    ${s.asType.length || !s.asLock.length ? card({
-      title: "Cells Using It as Type",
-      aside: s.asType.length === 20 ? "newest 20" : "",
-      body: s.asType.length ? cellList(s.asType, { role: "output" }) : "",
-      empty: "No live cell uses this script as its type.",
-    }) : ""}
-    ${s.asLock.length ? card({
-      title: "Cells Using It as Lock",
-      aside: s.asLock.length === 20 ? "newest 20" : "",
-      body: cellList(s.asLock, { role: "output" }),
-    }) : ""}`;
+    <section class="card flush">${tabBar}${body}${foot ? `<div class="card-foot">${foot}</div>` : ""}</section>`;
   return { title: s.name ? `Script ${s.name}` : "Unknown script", html };
+}
+
+// ---------------------------------------------------------------- scripts
+
+// Every script the explorer can name: your projects' first, then the genesis ones.
+export async function scripts(q) {
+  const list = await api("/api/scripts");
+  const filter = q.get("tab") ?? "all";
+  const shown = list.filter((s) => filter === "all" || (filter === "mine" ? s.source !== "genesis" : s.source === "genesis"));
+  const count = (c) => (c.n ? `${int(c.n)}${c.more ? "+" : ""}` : '<span class="muted">0</span>');
+  const rows = shown.map((s) => `<tr>
+      <td><a class="script-name" href="#/script/${s.codeHash}/${s.hashType}">${esc(s.name)}</a></td>
+      <td>${s.source === "genesis" ? '<span class="muted">genesis</span>' : esc(s.source)}</td>
+      <td class="opt"><span class="mono" title="${s.codeHash}">${short(s.codeHash, 10, 8)}</span></td>
+      <td class="opt mono">${esc(s.hashType)}</td>
+      <td>${s.live == null ? '<span class="muted">—</span>' : s.live ? '<span class="status">Live</span>' : '<span class="status bad">Not on this chain</span>'}</td>
+      <td class="r">${count(s.asType)}</td>
+      <td>${count(s.asLock)}</td>
+    </tr>`);
+  const mine = list.filter((s) => s.source !== "genesis").length;
+  const tabBar = tabs([
+    { label: `All (${list.length})`, href: "#/scripts", current: filter === "all" },
+    { label: `Your Projects (${mine})`, href: "#/scripts?tab=mine", current: filter === "mine" },
+    { label: `Genesis (${list.length - mine})`, href: "#/scripts?tab=genesis", current: filter === "genesis" },
+  ]);
+  const html = `<section class="card flush">${tabBar}${rows.length
+    ? table([["Script"], ["Source"], ["Code Hash", "opt"], ["Hash Type", "opt"], ["Code Cell"], ["Cells as Type", "r"], ["As Lock"]], rows)
+    : empty("No scripts from your projects. Start the explorer inside your project folder, or pass <code>--project path/to/your-project</code>.")}</section>`;
+  return { title: "Scripts", html };
+}
+
+// ---------------------------------------------------------------- accounts
+
+// offckb's 20 prefunded test accounts. Their keys ship with offckb; they're only shown by number.
+export async function accounts() {
+  const r = await api("/api/accounts");
+  if (!r.available) return { title: "Accounts", html: `<div class="notice warn"><p>Couldn't find offckb's test accounts. Is <code>offckb</code> on your PATH?</p></div>` };
+  const rows = r.accounts.map((a) => `<tr>
+      <td>#${a.index}</td>
+      <td>${addrLink(a.address, { head: 20, tail: 12 })}${a.role ? `<span class="sub">${esc(a.role)}</span>` : ""}</td>
+      <td class="r">${ckb(a.balance)}</td>
+      <td class="r opt">${int(a.cells)}</td>
+      <td class="r">${int(a.transactions)}</td>
+    </tr>`);
+  const html = `${card({
+    title: "Test Accounts",
+    count: r.accounts.length,
+    flush: true,
+    aside: "Funded with 42,000,000 CKB each in the devnet genesis",
+    body: table([["#"], ["Address"], [`${ckbIcon} Balance`, "r"], ["Live Cells", "r opt"], ["Transactions", "r"]], rows),
+  })}
+  <p class="page-note">These are offckb's built-in devnet accounts (see <code>offckb accounts</code>). Their private keys ship with offckb and are public, so never use them outside a local devnet.</p>`;
+  return { title: "Accounts", html, refresh: true };
 }
 
 // ---------------------------------------------------------------- faucet

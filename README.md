@@ -20,7 +20,7 @@ set up: it reads your devnet node directly and labels every script by name, incl
 - **Block**: miner, reward breakdown, epoch, size, cycles, difficulty, proposals, uncles and the raw header.
 - **Address** (balance, tokens, live cells, history) and **script** (where its code lives, which cells use it
   as lock or type).
-- **Faucet**: send devnet CKB to any `ckt1…` address, from offckb's test account #19 (never #0). Also one click
+- **Faucet**: send devnet CKB to any `ckt1…` address, from offckb's test account #18 (not #0-#2, offckb's example accounts, or #19, its deployer). Also one click
   away on every address page. It only works on a devnet and only for requests from your own machine.
 - **Search** for a tx hash, block number or hash, address, or script code hash. Press `/` or `Ctrl+K` to jump to it.
 
