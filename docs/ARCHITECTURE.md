@@ -24,6 +24,7 @@ page shows a toast when that happens.
 | `src/rpc.ts` | Minimal JSON-RPC client over `fetch`, with batch requests. |
 | `src/chain.ts` | The in-memory chain index (block and transaction summaries, reset detection) and the cellbase witness parser that finds a block's miner. |
 | `src/accounts.ts` | offckb's 20 test accounts, read from the installed offckb, and the roles offckb gives some of them. |
+| `src/tools.ts` | The Tools page: address and script conversion, ckbhash, molecule decoding with CCC's codecs, broadcast and dry run. |
 | `src/faucet.ts` | The devnet faucet: offckb test account #18, `offckb transfer`, devnet-only and localhost-only, one claim at a time. |
 | `src/txfields.ts` | Packed fields: `since` (RFC 0017), `WitnessArgs`, epoch numbers, difficulty from `compact_target`. |
 | `src/scripts.ts` | Loads script names: genesis scripts from `offckb system-scripts -o` (asked fresh every run, never cached on disk) and each project's `deployment/scripts.json`. |
@@ -57,6 +58,9 @@ page shows a toast when that happens.
 | `GET /api/nfts`, `GET /api/spore/:id` | Live spores and clusters; one spore with its history. |
 | `GET /api/spore/:id/content` | A spore's image bytes. Only image types, with `nosniff` and a sandboxing CSP, since spore content is whatever its minter chose. |
 | `GET /api/dao?tab=` | DAO totals plus deposits, depositors or transactions. |
+| `GET /api/charts` | Block times, activity, live cells and Knowledge Size over history; recent fee rates. |
+| `GET /api/tools/address`, `/script`, `/hash`, `/molecule` | The Tools page: pure computation, answers `{ error }` for bad input. |
+| `POST /api/tools/broadcast` | `{ tx, dryRun }`: `test_tx_pool_accept` for a dry run, `send_transaction` otherwise. Same guards as the faucet. |
 | `GET /api/faucet` | Whether the faucet is available, its account and balance, and recent claims with their status. |
 | `POST /api/faucet` | `{ address, amount }`: sends devnet CKB. The only endpoint that writes. |
 
@@ -129,6 +133,10 @@ They're drawn by `js/charts.js` as plain SVG, with hover tooltips and a hidden d
 What the official explorer doesn't have keeps its own components inside that system: the capacity bar with
 one colour each for lock, type and data, decoded cell contents, balance changes, rejected-transaction
 reasons and the "Your Scripts" table.
+
+Colours are tokens on `:root` with a dark set under `prefers-color-scheme: dark`; the header toggle
+overrides it (`data-theme` on `<html>`, remembered in localStorage and applied before the first paint).
+Links use a lighter blue in dark mode so they stay readable.
 
 Roboto is bundled from [Fontsource](https://fontsource.org/fonts/roboto) (`src/web/fonts/`, Apache 2.0).
 

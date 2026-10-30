@@ -7,6 +7,8 @@
   <link rel="icon" type="image/png" href="/brand/ckb-token.png">
   <link rel="preload" href="/fonts/roboto-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
+  <!-- Apply a saved theme before the first paint, so there's no flash of the other one. -->
+  <script>try { const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}</script>
 </head>
 <body>
   <a class="skip" href="#page">Skip to content</a>
@@ -34,8 +36,18 @@
           </div>
         </div>
         <a href="#/dao" data-section="dao">Nervos DAO</a>
-        <a href="#/accounts" data-section="accounts">Accounts</a>
-        <a href="#/faucet" data-section="faucet">Faucet</a>
+        <a href="#/charts" data-section="charts">Charts</a>
+        <div class="nav-menu">
+          <button type="button" aria-expanded="false" aria-haspopup="true">Tools</button>
+          <div class="nav-sub">
+            <a href="#/faucet" data-section="faucet">Faucet</a>
+            <a href="#/accounts" data-section="accounts">Test Accounts</a>
+            <a href="#/tools?tab=address" data-section="tools">Address &amp; Script</a>
+            <a href="#/tools?tab=hash" data-section="tools">Hasher</a>
+            <a href="#/tools?tab=molecule" data-section="tools">Molecule Decoder</a>
+            <a href="#/tools?tab=broadcast" data-section="tools">Broadcast Tx</a>
+          </div>
+        </div>
       </nav>
       <form id="search" class="search" role="search">
         <label class="sr-only" for="q">Search the devnet</label>
@@ -43,6 +55,7 @@
         <input id="q" name="q" placeholder="Block / Transaction / Address / Script Hash" autocomplete="off" spellcheck="false">
         <kbd aria-hidden="true">Ctrl+K</kbd>
       </form>
+      <button class="theme-toggle" id="theme" type="button" aria-label="Switch to dark mode" title="Switch to dark mode"></button>
       <a class="network" id="node" href="#/" title="Your devnet node">
         <span class="network-name"><span class="network-dot" aria-hidden="true"></span>CKB Devnet</span>
         <span class="network-sub" id="node-label">Connecting…</span>

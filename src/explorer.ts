@@ -7,6 +7,7 @@ import { decodeSince, difficultyOf, epochOf, parseWitness, type Since } from "./
 import type { KnownScript } from "./scripts.ts";
 import { ACCOUNT_ROLES, MINER_ARGS, offckbAccounts } from "./accounts.ts";
 import { FAUCET_ACCOUNT } from "./faucet.ts";
+import { Tools } from "./tools.ts";
 
 const ZERO_HASH = "0x" + "0".repeat(64);
 const hex = (n: number | bigint) => "0x" + n.toString(16);
@@ -115,7 +116,7 @@ export class Explorer {
   // Like mainnet, offckb's devnet genesis has an 8.4 billion CKB cell of which 60% is counted
   // as occupied because it's expected to be burnt. The CKB Explorer subtracts that 5.04 billion
   // (talk.nervos.org/t/7138), so we do the same whenever this chain's genesis has that cell.
-  private burnt: bigint | null = null;
+  burnt: bigint | null = null;
   async knowledgeSize() {
     if (this.burnt === null) {
       const genesis = await getBlock(this.url, 0);
@@ -839,6 +840,78 @@ export class Explorer {
     if (outs.some((x) => /^0x0{16}$/.test(x.d))) return "Deposit";
     if (outs.length) return "Withdrawal request";
     return "Withdrawal";
+  }
+
+  tools() {
+    return new Tools(this.url, this.resolver);
+  }
+
+  // ---- charts -------------------------------------------------------------------------
+
+  // Series for the Charts page, all from this chain: block time, activity, live cells and
+  // Knowledge Size over its history, and the fee rates its transactions actually paid.
+  async charts() {
+    const tip = await this.tip();
+    const blocks = this.index.blocks;
+    const last = blocks.slice(-501);
+    const blockTimes = last.slice(1).map((b, i) => ({ n: b.number, s: Math.max(0, b.timestamp - last[i].timestamp) / 1000 })).filter((p) => p.n > 1);
+
+    // Up to 60 equal stretches of history.
+    const buckets = Math.min(60, blocks.length);
+    const per = Math.ceil(blocks.length / buckets);
+    const activity: { from: number; to: number; txs: number }[] = [];
+    const liveCells: { n: number; cells: number }[] = [];
+    let running = 0;
+    for (let from = 0; from < blocks.length; from += per) {
+      const slice = blocks.slice(from, from + per);
+      running += slice.reduce((a, b) => a + b.liveCellsChange, 0);
+      activity.push({ from, to: from + slice.length - 1, txs: slice.reduce((a, b) => a + b.txs, 0) });
+      liveCells.push({ n: slice.at(-1)!.number, cells: running });
+    }
+
+    // Knowledge Size at 40 points in history, from each header's DAO field (U, minus the
+    // genesis cell that's due to be burnt, as on the home banner).
+    await this.knowledgeSize();
+    const sample = Array.from(new Set(Array.from({ length: 40 }, (_, i) => Math.round((tip * (i + 1)) / 40))));
+    const headers = await rpcBatch<{ dao: string; number: string }>(this.url, sample.map((n) => ["get_header_by_number", [hex(n)]]));
+    const knowledge = headers.map((h) => ({ n: num(h.number), bytes: Number((Buffer.from(h.dao.slice(2), "hex").readBigUInt64LE(24) - this.burnt!) / 100_000_000n) }));
+
+    // Fee rate of the last 100 transactions: fee (inputs minus outputs) per 1,000 bytes.
+    // Genesis transactions pay no fee, so they're left out.
+    const recent = this.index.txs.filter((t) => t.blockNumber > 0).slice(-100);
+    const fees = (await Promise.all(recent.map(async (t) => {
+      const tx = await this.fullTx(t.hash);
+      if (!tx) return null;
+      let input = 0n;
+      for (const i of tx.inputs) {
+        const src = await this.fullTx(i.previous_output.tx_hash);
+        if (!src) return null;
+        input += BigInt(src.outputs[num(i.previous_output.index)].capacity);
+      }
+      const fee = input - tx.outputs.reduce((a, o) => a + BigInt(o.capacity), 0n);
+      const size = txSize(tx);
+      return { hash: t.hash, blockNumber: t.blockNumber, fee: fee.toString(), size, feeRate: Number((fee * 1000n) / BigInt(size)), tags: t.tags };
+    }))).filter((x): x is NonNullable<typeof x> => !!x);
+    const rates = fees.map((f) => f.feeRate).sort((a, b) => a - b);
+    const pool = await rpc<{ min_fee_rate: string; pending: string; proposed: string }>(this.url, "tx_pool_info");
+
+    return {
+      tip,
+      blockTimes,
+      activity,
+      liveCells,
+      knowledge,
+      fees,
+      feeStats: rates.length ? {
+        count: rates.length,
+        min: rates[0],
+        median: rates[Math.floor(rates.length / 2)],
+        mean: Math.round(rates.reduce((a, b) => a + b, 0) / rates.length),
+        max: rates.at(-1),
+      } : null,
+      minFeeRate: num(pool.min_fee_rate),
+      pool: num(pool.pending) + num(pool.proposed),
+    };
   }
 
   // ---- search ---------------------------------------------------------------------------

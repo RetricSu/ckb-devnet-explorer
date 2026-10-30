@@ -1,7 +1,7 @@
 import {
   addrLink, api, ckbIcon, claimCkb, blockLink, card, cellCard, cellList, ckb, detailCard, esc, icon, iconBtn, iconLink, int, plural,
   scriptName, short, sourceBadge, stamp, tags, txLink, when, outPointLink, copyBtn, txKind, table, progress, tabs, pager,
-  delta, tokenDelta,
+  delta, tokenDelta, kv,
 } from "./ui.js";
 import { chartFigure } from "./charts.js";
 
@@ -27,26 +27,14 @@ export async function home() {
           <div class="dash-item"><span>Latest Block</span><b>${int(h.tip)}</b><em>${when(h.tipTimestamp)}</em></div>
           <div class="dash-item"><span>Average Block Time</span><b>${h.blockTime != null ? `${(h.blockTime / 1000).toFixed(2)}<small>s</small>` : "—"}</b><em>median of the last 20 blocks</em></div>
         </div>
-        ${chartFigure({
-          kind: "line",
-          title: "Block time (s), last 100 blocks",
-          series: blockTimes,
-          label: ["Block", "Seconds since the previous block"],
-          table: blockTimes.map((p) => [`#${int(p.n)}`, p.s.toFixed(2)]),
-        })}
+        ${blockTimeChart(blockTimes, "Block time (s), last 100 blocks")}
       </div>
       <div class="dash-half">
         <div class="dash-stats">
           <div class="dash-item"><span>Transactions</span><b>${int(h.transactionCount)}</b><em>not counting block rewards</em></div>
           <div class="dash-item"><span>Epoch</span><b>${int(h.epoch.number)}</b><em>block ${int(h.epoch.index + 1)} of ${int(h.epoch.length)}</em>${progress(epochFraction, "Epoch progress")}</div>
         </div>
-        ${chartFigure({
-          kind: "bar",
-          title: "Transactions across the chain's history",
-          series: activity,
-          label: ["Blocks", "Transactions"],
-          table: activity.map((x) => [`${int(x.from)}–${int(x.to)}`, int(x.txs)]),
-        })}
+        ${activityChart(activity, "Transactions across the chain's history")}
       </div>
     </div>
     <div class="dash-strip">
@@ -85,6 +73,23 @@ export async function home() {
     ${yourScripts(h.scripts)}`;
   return { title: "Home", html, refresh: true };
 }
+
+// The charts the home dashboard and the Charts page share.
+const blockTimeChart = (pts, title, light = false) => chartFigure({
+  kind: "line", title, light,
+  points: pts.map((p) => ({ y: p.s, tip: [`${p.s.toFixed(2)} s`, `before block #${int(p.n)}`] })),
+  first: pts.length ? `#${int(pts[0].n)}` : "", last: pts.length ? `#${int(pts.at(-1).n)}` : "",
+  label: ["Block", "Seconds since the previous block"],
+  table: pts.map((p) => [`#${int(p.n)}`, p.s.toFixed(2)]),
+});
+
+const activityChart = (buckets, title, light = false) => chartFigure({
+  kind: "bar", title, light,
+  points: buckets.map((b) => ({ y: b.txs, tip: [plural(b.txs, "transaction"), `in blocks ${int(b.from)}–${int(b.to)}`] })),
+  first: buckets.length ? `#${int(buckets[0].from)}` : "", last: buckets.length ? `#${int(buckets.at(-1).to)}` : "",
+  label: ["Blocks", "Transactions"],
+  table: buckets.map((b) => [`${int(b.from)}–${int(b.to)}`, int(b.txs)]),
+});
 
 function yourScripts(scripts) {
   const count = (c) => (c.n ? `${int(c.n)}${c.more ? "+" : ""}` : '<span class="muted">0</span>');
@@ -792,6 +797,176 @@ export async function dao(q) {
   }
   const foot = d.list.total ? `<div class="card-foot">${pager(d.list, "#/dao", d.tab === "deposits" ? "" : `tab=${d.tab}`)}</div>` : "";
   return { title: "Nervos DAO", html: `${overview}<section class="card flush">${tabBar}${body}${foot}</section>` };
+}
+
+// ---------------------------------------------------------------- charts
+
+// The CKB Explorer has a Charts page; these are the ones that mean something on a devnet.
+export async function charts() {
+  const c = await api("/api/charts");
+  const fs = c.feeStats;
+  const chartCard = (title, sub, figure) => `<section class="card chart-card"><div class="card-head"><h2>${title}</h2><span class="aside">${sub}</span></div><div class="chart-body">${figure}</div></section>`;
+
+  const live = chartFigure({
+    kind: "line", title: "Live cells", light: true, height: 200,
+    points: c.liveCells.map((p) => ({ y: p.cells, tip: [`${int(p.cells)} live cells`, `at block #${int(p.n)}`] })),
+    first: "#0", last: `#${int(c.tip)}`,
+    label: ["Block", "Live cells"], table: c.liveCells.map((p) => [`#${int(p.n)}`, int(p.cells)]),
+  });
+  const knowledge = chartFigure({
+    kind: "line", title: "Knowledge Size (CKBytes)", light: true, height: 200,
+    points: c.knowledge.map((p) => ({ y: p.bytes, tip: [`${int(p.bytes)} CKBytes`, `at block #${int(p.n)}`] })),
+    first: c.knowledge.length ? `#${int(c.knowledge[0].n)}` : "", last: c.knowledge.length ? `#${int(c.knowledge.at(-1).n)}` : "",
+    label: ["Block", "CKBytes"], table: c.knowledge.map((p) => [`#${int(p.n)}`, int(p.bytes)]),
+  });
+  const fees = chartFigure({
+    kind: "bar", title: "Fee rate (shannons/kB) of recent transactions", light: true, height: 200,
+    points: c.fees.map((f) => ({ y: f.feeRate, tip: [`${int(f.feeRate)} shannons/kB`, `${f.tags.join(", ") || "CKB transfer"} in block #${int(f.blockNumber)}`] })),
+    first: c.fees.length ? `#${int(c.fees[0].blockNumber)}` : "", last: c.fees.length ? `#${int(c.fees.at(-1).blockNumber)}` : "",
+    label: ["Transaction", "Fee rate"], table: c.fees.map((f) => [short(f.hash), int(f.feeRate)]),
+  });
+  const feeRows = c.fees.slice(-8).reverse().map((f) => `<tr>
+      <td>${txLink(f.hash, { head: 12, tail: 10 })}</td>
+      <td class="opt">${tags(f.tags) || '<span class="muted">CKB transfer</span>'}</td>
+      <td class="r">${ckb(f.fee)}</td>
+      <td class="r opt">${int(f.size)} B</td>
+      <td class="r"><b>${int(f.feeRate)}</b></td>
+    </tr>`);
+
+  const html = `
+    <div class="grid-even">
+      ${chartCard("Block Time", "Seconds between each of the last 500 blocks", blockTimeChart(c.blockTimes, "Block time (s), last 500 blocks", true))}
+      ${chartCard("Transactions", "How many landed in each stretch of the chain's history", activityChart(c.activity, "Transactions across the chain's history", true))}
+      ${chartCard("Live Cells", "Cells that exist right now, over the chain's history", live)}
+      ${chartCard("Knowledge Size", "CKBytes the chain stores, from each header's DAO field", knowledge)}
+    </div>
+    <section class="card">
+      <div class="card-head"><h2>Fee Rates</h2><span class="aside">What this chain's last ${int(c.fees.length)} transactions paid, per 1,000 bytes</span></div>
+      <div class="fee-stats">
+        <div><span>Node minimum</span><b>${int(c.minFeeRate)}</b><em>to enter the tx pool</em></div>
+        ${fs ? `<div><span>Median</span><b>${int(fs.median)}</b><em>half paid less</em></div>
+        <div><span>Mean</span><b>${int(fs.mean)}</b><em>average</em></div>
+        <div><span>Lowest · Highest</span><b>${int(fs.min)} · ${int(fs.max)}</b><em>shannons/kB</em></div>` : `<div><span>Transactions</span><b>0</b><em>nothing to measure yet</em></div>`}
+        <div><span>Waiting in the pool</span><b>${int(c.pool)}</b><em>pending or proposed</em></div>
+      </div>
+      ${c.fees.length ? `<div class="chart-body">${fees}</div>` : ""}
+    </section>
+    ${c.fees.length ? card({
+      title: "Recent Fees",
+      flush: true,
+      body: table([["Transaction Hash"], ["What It Did", "opt"], ["Fee", "r"], ["Size", "r opt"], ["Fee Rate (shannons/kB)", "r"]], feeRows),
+    }) : ""}`;
+  return { title: "Charts", html };
+}
+
+// ---------------------------------------------------------------- tools
+
+const TOOL_TABS = [
+  ["address", "Address & Script"],
+  ["hash", "Hasher"],
+  ["molecule", "Molecule Decoder"],
+  ["broadcast", "Broadcast Tx"],
+];
+const MOLECULE_TYPES = ["Script", "OutPoint", "CellOutput", "CellInput", "WitnessArgs", "Transaction", "SporeData", "ClusterData", "Bytes", "Uint64", "Uint128"];
+
+// Like the CKB Explorer's Tools: each form answers below itself, without leaving the page.
+export async function tools(q) {
+  const tab = TOOL_TABS.some(([k]) => k === q.get("tab")) ? q.get("tab") : "address";
+  const tabBar = tabs(TOOL_TABS.map(([k, label]) => ({ label, href: `#/tools?tab=${k}`, current: k === tab })));
+  const forms = {
+    address: `
+      <form class="tool-form" data-tool="address">
+        <h3>Address to script</h3>
+        <label>Address <input name="address" value="${esc(q.get("address") ?? "")}" placeholder="ckt1... or ckb1..." spellcheck="false" autocomplete="off"></label>
+        <button class="btn primary" type="submit">Parse</button>
+      </form>
+      <form class="tool-form" data-tool="script">
+        <h3>Script to address</h3>
+        <label>Code hash <input name="code_hash" placeholder="0x..." spellcheck="false" autocomplete="off"></label>
+        <label>Hash type <select name="hash_type">${["type", "data", "data1", "data2"].map((t) => `<option>${t}</option>`).join("")}</select></label>
+        <label>Args <input name="args" placeholder="0x" spellcheck="false" autocomplete="off"></label>
+        <button class="btn primary" type="submit">Encode</button>
+      </form>`,
+    hash: `
+      <form class="tool-form" data-tool="hash">
+        <h3>ckbhash</h3>
+        <p class="tool-note">BLAKE2b-256 with CKB's personalisation (<code>ckb-default-hash</code>), the hash behind every script hash, data hash and transaction hash.</p>
+        <label>Input <textarea name="input" rows="4" spellcheck="false" placeholder="0x... or text"></textarea></label>
+        <div class="tool-row"><label class="inline"><input type="radio" name="as" value="hex" checked> Hex bytes</label><label class="inline"><input type="radio" name="as" value="utf8"> UTF-8 text</label></div>
+        <button class="btn primary" type="submit">Hash</button>
+      </form>`,
+    molecule: `
+      <form class="tool-form" data-tool="molecule">
+        <h3>Decode molecule bytes</h3>
+        <label>Type <select name="type">${MOLECULE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select></label>
+        <label>Hex <textarea name="hex" rows="5" spellcheck="false" placeholder="0x..."></textarea></label>
+        <button class="btn primary" type="submit">Decode</button>
+      </form>`,
+    broadcast: `
+      <form class="tool-form" data-tool="broadcast">
+        <h3>Send a signed transaction</h3>
+        <p class="tool-note">Paste it in the node's JSON format (snake_case), like a transaction page's Download JSON. <b>Dry run</b> asks the node whether it would accept it, with the cycles and fee, without sending anything. Devnet only.</p>
+        <label>Transaction <textarea name="tx" rows="10" spellcheck="false" placeholder='{ "version": "0x0", "cell_deps": [...], ... }'></textarea></label>
+        <div class="tool-row"><button class="btn primary" type="submit" name="mode" value="dry">Dry run</button><button class="btn" type="submit" name="mode" value="send">Send</button></div>
+      </form>`,
+  };
+  const html = `<section class="card flush">${tabBar}<div class="tools">${forms[tab]}<div class="tool-result" role="status" aria-live="polite"></div></div></section>`;
+
+  const mount = (root) => {
+    const out = root.querySelector(".tool-result");
+    const show = (h) => { out.innerHTML = h; };
+    const fail = (m) => show(`<div class="notice error"><p>${esc(m)}</p></div>`);
+    const scriptResult = (r) => show(`<div class="tool-out">${kv([
+      ["Lock / script", r.name ? `${esc(r.name)} <small>${esc(r.source ?? "")}</small>` : '<span class="muted">not a script this explorer knows</span>'],
+      ["Code hash", `<span class="mono">${r.script.code_hash}</span>`],
+      ["Hash type", `<span class="mono">${esc(r.script.hash_type)}</span>`],
+      ["Args", `<span class="mono">${r.script.args}</span>`],
+      ["Script hash", `<span class="mono">${r.scriptHash}</span> ${copyBtn(r.scriptHash, "script hash")}`],
+    ], [
+      ...(r.network ? [["Parsed as", esc(r.network)]] : []),
+      ["Devnet / testnet address", `${addrLink(r.devnet, { head: 16, tail: 10 })} ${copyBtn(r.devnet, "address")}`],
+      ["Mainnet address", `<span class="mono" title="${r.mainnet}">${short(r.mainnet, 16, 10)}</span> ${copyBtn(r.mainnet, "mainnet address")}`],
+    ])}</div>`);
+    const run = async (form, submitter) => {
+      const f = new FormData(form);
+      const get = (path) => api(path).then((r) => (r.error ? fail(r.error) : r));
+      switch (form.dataset.tool) {
+        case "address": { const r = await get(`/api/tools/address?address=${encodeURIComponent(f.get("address"))}`); if (r) scriptResult(r); break; }
+        case "script": { const r = await get(`/api/tools/script?code_hash=${encodeURIComponent(f.get("code_hash"))}&hash_type=${f.get("hash_type")}&args=${encodeURIComponent(f.get("args"))}`); if (r) scriptResult(r); break; }
+        case "hash": {
+          const r = await get(`/api/tools/hash?as=${f.get("as")}&input=${encodeURIComponent(f.get("input"))}`);
+          if (r) show(`<div class="tool-out">${kv([["ckbhash", `<span class="mono">${r.hash}</span> ${copyBtn(r.hash, "hash")}`], ["Input", `${int(r.bytes)} bytes`]])}</div>`);
+          break;
+        }
+        case "molecule": {
+          const r = await get(`/api/tools/molecule?type=${f.get("type")}&hex=${encodeURIComponent(f.get("hex"))}`);
+          if (r) show(`<div class="tool-out"><p class="tool-note">${esc(r.type)}, ${int(r.bytes)} bytes</p><pre class="json">${esc(JSON.stringify(r.value, null, 2))}</pre></div>`);
+          break;
+        }
+        case "broadcast": {
+          let tx;
+          try { tx = JSON.parse(f.get("tx")); } catch { return fail("That isn't valid JSON."); }
+          if (tx && tx.transaction) tx = tx.transaction;
+          const dryRun = submitter?.value !== "send";
+          const res = await fetch("/api/tools/broadcast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tx, dryRun }) });
+          const r = await res.json();
+          if (r.error) return fail(r.error);
+          show(r.dryRun
+            ? `<div class="notice info"><p><b>The node would accept it.</b> ${int(r.cycles)} cycles, fee ${ckb(r.fee)}. Nothing was sent.</p></div>`
+            : `<div class="notice info"><p><b>Sent.</b> ${txLink(r.hash, { head: 16, tail: 12 })} is in the tx pool and lands in the next few blocks.</p></div>`);
+          break;
+        }
+      }
+    };
+    root.querySelectorAll(".tool-form").forEach((form) => form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      show('<p class="loading">Working…</p>');
+      run(form, e.submitter).catch((err) => fail(err.message));
+    }));
+    // Opened with ?address=…: answer straight away.
+    if (q.get("address")) root.querySelector('[data-tool="address"]')?.requestSubmit();
+  };
+  return { title: "Tools", html, mount };
 }
 
 // ---------------------------------------------------------------- faucet

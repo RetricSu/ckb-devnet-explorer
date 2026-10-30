@@ -27,6 +27,12 @@ set up: it reads your devnet node directly and labels every script by name, incl
   melted), and spore clusters.
 - **Nervos DAO**: deposits and withdrawals, estimated compensation, and when each withdrawal unlocks.
 - **Accounts**: offckb's 20 test accounts with their balances and the roles offckb gives them.
+- **Charts**: block time, transactions, live cells and Knowledge Size over the chain's history, and the fee
+  rates its transactions paid.
+- **Tools**: address to script and back (devnet and mainnet forms), a ckbhash hasher, a molecule decoder for
+  the common CKB types, and a broadcast form with a dry run that asks the node whether it would accept a
+  transaction without sending it.
+- **Light and dark**: follows your system, with a toggle in the header.
 - **Faucet**: send devnet CKB to any `ckt1…` address, from offckb's test account #18 (not #0-#2, offckb's example accounts, or #19, its deployer). Also one click
   away on every address page. It only works on a devnet and only for requests from your own machine.
 - **Search** for a tx hash, block number or hash, address, or script code hash. Press `/` or `Ctrl+K` to jump to it.

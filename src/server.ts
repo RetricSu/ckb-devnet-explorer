@@ -26,6 +26,10 @@ export function startServer(explorer: Explorer, faucet: Faucet, port: number, rp
     if (explorer.index.resets !== resets) { resets = explorer.index.resets; faucet.reset(); }
     return faucet.status();
   };
+  const tools = explorer.tools();
+  // Tool answers carry their own error message: a bad input is a 200 with { error }.
+  const tool = async (f: () => unknown) => { try { return await f(); } catch (err) { return { error: (err as Error).message }; } };
+  const q = (url: URL, k: string) => url.searchParams.get(k) ?? "";
   const noTx = (m: RegExpMatchArray) => `No transaction ${m[1]} on this devnet.`;
   // [pattern, handler, message when the handler finds nothing]
   const routes: Route[] = [
@@ -50,6 +54,11 @@ export function startServer(explorer: Explorer, faucet: Faucet, port: number, rp
     [/^\/api\/dao$/, (_, url) => explorer.dao(url.searchParams.get("tab") ?? "", ...pageArgs(url)), () => "This devnet has no Nervos DAO script."],
     [/^\/api\/accounts$/, () => explorer.accounts(), () => ""],
     [/^\/api\/faucet$/, () => faucetStatus(), () => ""],
+    [/^\/api\/charts$/, () => explorer.charts(), () => ""],
+    [/^\/api\/tools\/address$/, (_, url) => tool(() => tools.address(q(url, "address").trim())), () => ""],
+    [/^\/api\/tools\/script$/, (_, url) => tool(() => tools.script(q(url, "code_hash").trim(), q(url, "hash_type"), q(url, "args").trim() || "0x")), () => ""],
+    [/^\/api\/tools\/hash$/, (_, url) => tool(() => tools.hash(q(url, "input"), q(url, "as"))), () => ""],
+    [/^\/api\/tools\/molecule$/, (_, url) => tool(() => tools.molecule(q(url, "type"), q(url, "hex"))), () => ""],
     [/^\/api\/search$/, (_, url) => explorer.search(url.searchParams.get("q") ?? ""), () => ""],
   ];
 
@@ -60,22 +69,37 @@ export function startServer(explorer: Explorer, faucet: Faucet, port: number, rp
       res.end(JSON.stringify(body));
     };
     try {
-      if (url.pathname === "/api/faucet" && req.method === "POST") {
-        // The one endpoint that writes to the chain. Only from this machine, only as JSON (a
-        // page on another site can't send that without a CORS preflight, which we never
-        // answer), and only from our own origin when the browser says where it came from.
+      // The endpoints that write to the chain (the faucet and broadcast). Only from this
+      // machine, only as JSON (a page on another site can't send that without a CORS
+      // preflight, which we never answer), and only from our own origin when the browser says
+      // where it came from.
+      const readJson = async (limit: number): Promise<Record<string, unknown> | string> => {
         const origin = req.headers.origin;
         if (!LOCAL.has(req.socket.remoteAddress ?? "") || (origin && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)))
-          return json(403, { error: "The faucet only takes requests from this machine." });
-        if (!(req.headers["content-type"] ?? "").startsWith("application/json"))
-          return json(415, { error: "Send the claim as JSON." });
+          return "This only takes requests from this machine.";
+        if (!(req.headers["content-type"] ?? "").startsWith("application/json")) return "Send it as JSON.";
         let raw = "";
         for await (const chunk of req) {
           raw += chunk;
-          if (raw.length > 2048) return json(413, { error: "Request too large." });
+          if (raw.length > limit) return "Request too large.";
         }
-        let body: { address?: unknown; amount?: unknown };
-        try { body = JSON.parse(raw); } catch { return json(400, { error: "Send the claim as JSON." }); }
+        try { return JSON.parse(raw); } catch { return "Send it as JSON."; }
+      };
+      if (url.pathname === "/api/tools/broadcast" && req.method === "POST") {
+        const body = await readJson(512 * 1024);
+        if (typeof body === "string") return json(400, { error: body });
+        const devnet = await faucet.devnetProblem();
+        if (devnet) return json(403, { error: devnet });
+        if (!body.tx || typeof body.tx !== "object") return json(400, { error: "Paste a transaction as JSON." });
+        try {
+          return json(200, await tools.broadcast(body.tx as Record<string, unknown>, body.dryRun === true));
+        } catch (err) {
+          return json(200, { error: (err as Error).message.replace(/^(send_transaction|test_tx_pool_accept): /, "") });
+        }
+      }
+      if (url.pathname === "/api/faucet" && req.method === "POST") {
+        const body = await readJson(2048);
+        if (typeof body === "string") return json(400, { error: body });
         const to = String(body.address ?? "").trim();
         const amount = Number(body.amount);
         const problem = await faucet.check(to, amount);

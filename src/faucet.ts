@@ -40,6 +40,12 @@ export class Faucet {
     this.claims = [];
   }
 
+  // Also used by the broadcast tool: nothing writes unless this is a devnet.
+  async devnetProblem() {
+    const info = await rpc<{ chain: string }>(this.url, "get_blockchain_info");
+    return info.chain === "ckb_dev" ? null : `The node is on "${info.chain}", not a devnet, so nothing is sent.`;
+  }
+
   private async devnetCheck(): Promise<string | null> {
     if (this.problem) return this.problem;
     const info = await rpc<{ chain: string }>(this.url, "get_blockchain_info");
