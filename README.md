@@ -185,6 +185,10 @@ The process reconnects used/closed channels until shutdown. Readiness becomes `{
 The embedder owns the external listener and its policy. Explorer never follows an embedder-controlled request to a different socket path.
 This mode requires a local Unix-socket-capable platform and fails if no bridge connects within five seconds.
 
+In bridge mode the explorer runs read-only: offckb's sandbox only forwards read RPC methods and has no
+`offckb` binary, so the faucet and transaction broadcast are switched off, and pages hide them.
+`/api/info` reports which of `faucet`, `broadcast` and `accounts` are available.
+
 Run `npm test` for the CLI contract checks.
 
 ## How it works

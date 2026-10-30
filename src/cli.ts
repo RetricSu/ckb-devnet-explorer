@@ -81,7 +81,7 @@ if (positionals[0] === "serve") {
   const explorer = new Explorer(url, resolver);
   const faucet = new Faucet(url);
   const server = values.bridge
-    ? createExplorerServer(explorer, faucet, url, projects)
+    ? createExplorerServer(explorer, faucet, url, projects, { writable: false })
     : startServer(explorer, faucet, port, url, projects, values.host);
   const stopBridge = values.bridge ? serveBridge(server, values.bridge, () => ready()) : undefined;
   const stop = () => { stopBridge?.(); server.close(); server.closeAllConnections(); };
