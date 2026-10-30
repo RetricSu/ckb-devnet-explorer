@@ -29,7 +29,7 @@ page shows a toast when that happens.
 | `src/decode.ts` | Reads cell data by the standard its type script implements: Nervos DAO, sUDT, xUDT, Spore, Spore cluster, Type ID. |
 | `src/explorer.ts` | Builds the views: home, block and transaction lists, the tx pool, transaction (every input traced back to the cell it consumed, live/spent status of every output, balance changes, witnesses, fee, size, cycles, deps), block (miner, reward, size, cycles), address, script, and search. |
 | `src/server.ts` | `node:http` server: the JSON API below and the static files. |
-| `src/web/` | The page. Plain HTML/CSS/JS modules, no build step, system fonts only, so it works offline. `js/ui.js` has the shared pieces (capacity bar, cell row, script name), `js/pages.js` one function per page, `js/app.js` the hash router, search, node status and live refresh. |
+| `src/web/` | The page. Plain HTML/CSS/JS modules, no build step, fonts bundled in `fonts/`, so it works offline. `js/ui.js` has the shared pieces (detail card, label/value columns, pager, capacity bar, cell row, script name), `js/pages.js` one function per page, `js/app.js` the hash router, search, node status and live refresh. |
 | `src/cli.ts` | `serve` starts the server; with no command it prints recent transactions to the terminal. |
 | `bin/ckb-devnet-explorer.js` | Entry point for `npx` and global installs. Registers tsx and imports `src/cli.ts`, so there's still no build step. |
 
@@ -59,6 +59,21 @@ only answers once the block is finalized, 11 blocks later; until then the page s
 **Rejected transactions.** `get_transaction` on a hash the node rejected recently returns no transaction
 but a status of `rejected` and a JSON reason (`{"type": "Resolve", "description": ...}`). The page shows the
 type in plain words and the raw description.
+
+## Design
+
+The UI follows the design system of the official [CKB Explorer](https://github.com/nervosnetwork/ckb-explorer-frontend)
+(MIT), so it feels familiar to anyone who uses that one: a black header, white cards on a grey page, Roboto,
+monospace hashes shortened with `...`, amounts with grey decimals, label/value detail cards, its table, tab and
+pager patterns, and its breakpoints (1440, 1200, 750 px). Its primary colour identifies the network (mainnet
+green `#00CC9B`, testnet purple `#9A2CEC`), so the devnet gets its own blue, `#346DFF`, which can't be mistaken
+for either. The logo is our own; the Nervos marks aren't used.
+
+What the official explorer doesn't have keeps its own components inside that system: the capacity bar with
+one colour each for lock, type and data, decoded cell contents, balance changes, rejected-transaction
+reasons and the "Your Scripts" table.
+
+Roboto is bundled from [Fontsource](https://fontsource.org/fonts/roboto) (`src/web/fonts/`, Apache 2.0).
 
 ## How the hard parts work
 

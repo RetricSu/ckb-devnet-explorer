@@ -59,7 +59,7 @@ async function pollNode() {
     node.classList.add("up");
     node.classList.remove("down");
     node.title = `Connected to ${info.rpcUrl}`;
-    $("#node-label").innerHTML = `devnet <b>#${int(info.tip)}</b>`;
+    $("#node-label").textContent = `#${int(info.tip)} · v${info.node.split(" ")[0]}`;
     if (lastTip !== null && info.tip !== lastTip) {
       node.classList.remove("tick");
       void node.offsetWidth;
@@ -76,7 +76,7 @@ async function pollNode() {
     node.classList.add("down");
     node.classList.remove("up");
     node.title = err.message;
-    $("#node-label").textContent = "devnet offline";
+    $("#node-label").textContent = "offline";
   }
 }
 
@@ -99,7 +99,8 @@ $("#search").addEventListener("submit", async (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) {
+  const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
+  if ((e.key === "/" && !typing) || (e.key.toLowerCase() === "k" && (e.ctrlKey || e.metaKey))) {
     e.preventDefault();
     $("#q").focus();
   }
@@ -144,6 +145,15 @@ document.addEventListener("click", async (e) => {
   } catch (err) {
     toast(err.message);
   }
+});
+
+// The pager's "Page [ ] Goto" box.
+document.addEventListener("submit", (e) => {
+  const form = e.target.closest("form[data-goto]");
+  if (!form) return;
+  e.preventDefault();
+  const p = Math.min(Number(form.dataset.pages), Math.max(1, Math.floor(Number(form.elements.p.value)) || 1));
+  location.hash = form.dataset.goto.replace("{p}", p);
 });
 
 document.addEventListener("change", (e) => {

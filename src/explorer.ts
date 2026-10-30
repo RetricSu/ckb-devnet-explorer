@@ -102,6 +102,13 @@ export class Explorer {
     return this.index.tip;
   }
 
+  // The CKB version the devnet node runs, e.g. "0.208.0 (585395c 2026-07-14)".
+  private version: string | null = null;
+  async nodeVersion() {
+    this.version ??= (await rpc<{ version: string }>(this.url, "local_node_info")).version;
+    return this.version;
+  }
+
   private async block(n: number) {
     if (!this.blocks.has(n)) {
       if (this.blocks.size > 500) this.blocks.delete(this.blocks.keys().next().value!);

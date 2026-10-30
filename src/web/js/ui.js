@@ -1,7 +1,9 @@
 // Small rendering helpers shared by every page. Everything returns HTML strings.
+// Components follow the CKB Explorer's design system; see the note at the top of style.css.
 
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-export const short = (h, head = 10, tail = 6) => (h.length > head + tail + 1 ? `${h.slice(0, head)}…${h.slice(-tail)}` : h);
+// Hashes and addresses are shortened in the middle with "...", as the CKB Explorer does.
+export const short = (h, head = 10, tail = 8) => (h.length > head + tail + 3 ? `${h.slice(0, head)}...${h.slice(-tail)}` : h);
 
 export async function api(path) {
   const res = await fetch(path);
@@ -12,39 +14,50 @@ export async function api(path) {
 
 // ---- numbers & time ----
 
+// 1,234.56789000 CKB: always 8 decimals, the decimals smaller and grey.
 export function ckb(shannons, { unit = true } = {}) {
   const v = BigInt(shannons);
-  const whole = (v / 100000000n).toLocaleString("en-US");
-  const frac = (v % 100000000n).toString().padStart(8, "0").replace(/0+$/, "");
-  return `${whole}${frac ? `<span class="frac">.${frac}</span>` : ""}${unit ? ' <small class="muted">CKB</small>' : ""}`;
+  const neg = v < 0n;
+  const a = neg ? -v : v;
+  const whole = (a / 100000000n).toLocaleString("en-US");
+  const frac = (a % 100000000n).toString().padStart(8, "0");
+  return `<span class="amount">${neg ? "−" : ""}${whole}<span class="dec">.${frac}</span>${unit ? '<span class="unit">CKB</span>' : ""}</span>`;
 }
 
 export const int = (n) => Number(n).toLocaleString("en-US");
+export const plural = (n, word) => `${int(n)} ${word}${n === 1 ? "" : "s"}`;
 
 export function ago(ms) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }
 
+// 2026/10/30 13:09:28, the format the CKB Explorer uses.
+export function stamp(ms) {
+  if (ms == null) return "—";
+  if (ms === 0) return "Genesis";
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+// Relative time in a <time> element, with the exact time on hover.
 // The devnet's genesis block has timestamp 0, which would read as "20000d ago".
 export function when(ms) {
   if (ms == null) return "—";
-  if (ms === 0) return "genesis";
-  const d = new Date(ms);
-  return `<time datetime="${d.toISOString()}" title="${d.toLocaleString()}">${ago(ms)}</time>`;
+  if (ms === 0) return "Genesis";
+  return `<time datetime="${new Date(ms).toISOString()}" title="${stamp(ms)}">${ago(ms)}</time>`;
 }
-
-export const absolute = (ms) => (ms == null ? "—" : ms === 0 ? "Genesis, no timestamp" : new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" }));
 
 // ---- links ----
 
-export const txLink = (h, { head = 8, tail = 6 } = {}) => `<a class="mono" href="#/tx/${h}" title="${h}">${short(h, head, tail)}</a>`;
-export const blockLink = (n) => `<a class="mono" href="#/block/${n}">#${int(n)}</a>`;
-export const addrLink = (a, { full = false } = {}) => `<a class="mono" href="#/address/${a}" title="${a}">${full ? a : short(a, 14, 8)}</a>`;
-export const outPointLink = (op) => `<a class="mono" href="#/tx/${op.txHash}" title="${op.txHash}:${op.index}">${short(op.txHash, 8, 4)}:${op.index}</a>`;
+export const txLink = (h, { head = 10, tail = 8 } = {}) => `<a class="mono" href="#/tx/${h}" title="${h}">${short(h, head, tail)}</a>`;
+export const blockLink = (n) => `<a href="#/block/${n}">${int(n)}</a>`;
+export const addrLink = (a, { head = 13, tail = 8 } = {}) => `<a class="mono" href="#/address/${a}" title="${a}">${short(a, head, tail)}</a>`;
+export const outPointLink = (op) => `<a class="mono" href="#/tx/${op.txHash}" title="${op.txHash}:${op.index}">${short(op.txHash, 8, 6)}:${op.index}</a>`;
 
 export function sourceBadge(source) {
   if (!source) return "";
@@ -60,30 +73,57 @@ export function scriptName(s, { badge = true } = {}) {
   return `${link}${badge ? ` ${sourceBadge(target.source)}` : ""}${r.inner ? ` <span class="via">run by ${esc(r.name)}</span>` : ""}`;
 }
 
+const ICONS = {
+  copy: `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 13V4.5a1 1 0 0 1 1-1H13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  download: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  json: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4c-2 0-2 1.5-2 3s0 3-1.5 3C5 10 5 11.5 5 13s0 3 2 3M13 4c2 0 2 1.5 2 3s0 3 1.5 3C15 10 15 11.5 15 13s0 3-2 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  arrow: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h11m0 0-4-4m4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  blocks: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="13" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11 7h4a2 2 0 0 1 2 2v4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>`,
+  txs: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14m0 0-4-4m4 4-4 4M20 16H6m0 0 4-4m-4 4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+};
+export const icon = (name) => ICONS[name];
+
 export const copyBtn = (value, label) =>
-  `<button class="copy" type="button" data-copy="${esc(value)}" aria-label="Copy ${esc(label)}" title="Copy ${esc(label)}"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 10.5V3.5A1 1 0 0 1 4 2.5h6.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>`;
+  `<button class="copy" type="button" data-copy="${esc(value)}" aria-label="Copy ${esc(label)}" title="Copy ${esc(label)}">${ICONS.copy}</button>`;
+
+export const iconBtn = (name, label, attrs) =>
+  `<button class="icon-btn" type="button" ${attrs} aria-label="${esc(label)}" title="${esc(label)}">${ICONS[name]}</button>`;
+export const iconLink = (name, label, attrs) =>
+  `<a class="icon-btn" ${attrs} aria-label="${esc(label)}" title="${esc(label)}">${ICONS[name]}</a>`;
+
+export const tip = (text) => `<span class="tip" title="${esc(text)}" aria-label="${esc(text)}"></span>`;
 
 // ---- layout pieces ----
 
-export function pageHead({ eyebrow, title, hash, sub, aside }) {
-  return `<header class="page-head">
-    <p class="eyebrow">${eyebrow}</p>
-    <h1 class="title${hash ? " hash" : ""}">${title}${hash ? copyBtn(hash, eyebrow.replace(/<[^>]+>/g, "").trim().toLowerCase()) : ""}${aside ? `<span class="page-nav">${aside}</span>` : ""}</h1>
-    ${sub ? `<p class="subtitle">${sub}</p>` : ""}
-  </header>`;
+// The first card of a detail page: "Transaction  0x...  [copy] [download]", then label/value columns.
+export function detailCard({ title, hash, hashText, small = false, status, actions = "", nav = "", left = [], right = [], extra = "" }) {
+  return `<section class="card">
+    <header class="hash-head">
+      <h1>${title}</h1>
+      ${hash ? `<span class="hash${small ? " small" : ""}">${esc(hashText ?? hash)}</span>` : ""}
+      <span class="actions">${hash ? copyBtn(hash, title.toLowerCase()) : ""}${actions}</span>
+      ${status ? `<span class="status-wrap">${status}</span>` : ""}
+      ${nav ? `<span class="nav-btns">${nav}</span>` : ""}
+    </header>
+    ${left.length || right.length ? kv(left, right) : ""}
+    ${extra}
+  </section>`;
 }
 
-export function facts(items, cols = 3) {
-  const list = items.filter(Boolean);
-  return `<div class="panel facts-wrap"><dl class="facts${cols === 4 ? " cols-4" : ""}">${list.map(([k, v, title]) =>
-    `<div class="fact"${title ? ` title="${esc(title)}"` : ""}><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl></div>`;
+// Two columns of label/value rows split by a rule. Rows: [label, value, tipText?].
+export function kv(left, right = []) {
+  const col = (rows) => `<dl class="kv-col">${rows.filter(Boolean).map(([k, v, t]) =>
+    `<div class="kv-row"><dt>${k}${t ? tip(t) : ""}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
+  return `<div class="kv">${col(left)}${right.length ? col(right) : ""}</div>`;
 }
 
-export function panel({ title, count, aside, body, empty }) {
+// A white card with a title row. flush: the body (a table) runs edge to edge.
+export function card({ title, count, aside, body, empty, flush = false, foot = "" }) {
   const hasBody = body && body.trim();
-  return `<section class="panel">
-    <div class="panel-head"><h2>${title}</h2>${count != null ? `<span class="count">${count}</span>` : ""}${aside ? `<span class="aside">${aside}</span>` : ""}</div>
-    ${hasBody ? body : `<p class="panel-empty">${empty ?? "Nothing here yet."}</p>`}
+  return `<section class="card${flush ? " flush" : ""}">
+    ${title ? `<div class="card-head"><h2>${title}</h2>${count != null ? `<span class="count">(${count})</span>` : ""}${aside ? `<span class="aside">${aside}</span>` : ""}</div>` : ""}
+    ${hasBody ? body : `<p class="card-empty">${empty ?? "Nothing here yet."}</p>`}
+    ${foot}
   </section>`;
 }
 
@@ -92,17 +132,11 @@ export const tags = (list) => (list?.length ? `<span class="tags">${list.map((t)
 // What a transaction did, for list rows: its tags, or a plain description.
 export const txKind = (t) => tags(t.tags) || `<span class="muted">${t.blockNumber === 0 ? "Genesis" : "CKB transfer"}</span>`;
 
-// A table inside a panel. rows: array of <tr> strings. cols: [label, className?].
+// A table. rows: array of <tr> strings. cols: [label, className?].
 export function table(cols, rows) {
   return `<div class="table-scroll"><table class="table">
     <thead><tr>${cols.map(([label, cls]) => `<th${cls ? ` class="${cls}"` : ""}>${label}</th>`).join("")}</tr></thead>
     <tbody>${rows.join("")}</tbody></table></div>`;
-}
-
-// A headline number on the home page.
-export function stat({ label, value, sub, href, extra = "" }) {
-  const inner = `<span class="stat-label">${label}</span><span class="stat-value">${value}</span>${sub ? `<span class="stat-sub">${sub}</span>` : ""}${extra}`;
-  return href ? `<a class="stat" href="${href}">${inner}</a>` : `<div class="stat">${inner}</div>`;
 }
 
 export const progress = (fraction, label) =>
@@ -110,33 +144,34 @@ export const progress = (fraction, label) =>
 
 // Tabs are plain links, so every tab has its own URL.
 export function tabs(items) {
-  return `<nav class="tabs" aria-label="Views">${items.map(({ label, href, current, count }) =>
-    `<a href="${href}"${current ? ' aria-current="page"' : ""}>${label}${count != null ? ` <span class="count">${int(count)}</span>` : ""}</a>`).join("")}</nav>`;
+  return `<nav class="tabs" aria-label="Views">${items.map(({ label, href, current }) =>
+    `<a href="${href}"${current ? ' aria-current="page"' : ""}>${label}</a>`).join("")}</nav>`;
 }
 
-// Page links for a list. base is the route without a query string, e.g. "#/blocks".
-export function pager({ page, pages, size, total }, base, extra = "") {
+// Their pager: First ‹ Page 1 of N › Last · Show rows · Page [ ] Goto.
+// base is the route without a query string, e.g. "#/blocks".
+export function pager({ page, pages, size }, base, extra = "") {
   const href = (p, s = size) => `${base}?${extra ? `${extra}&` : ""}page=${p}&size=${s}`;
   const link = (p, label, aria) => p < 1 || p > pages || p === page
     ? `<span class="btn" aria-disabled="true">${label}</span>`
     : `<a class="btn" href="${href(p)}" aria-label="${aria}">${label}</a>`;
-  const sizes = [10, 20, 50, 100].map((s) => `<option value="${href(1, s)}"${s === size ? " selected" : ""}>${s} per page</option>`).join("");
+  const sizes = [10, 20, 50, 100].map((s) => `<option value="${href(1, s)}"${s === size ? " selected" : ""}>${s}</option>`).join("");
   return `<div class="pager">
-    <span class="muted">${int(total)} total</span>
     <span class="pager-links">
       ${link(1, "First", "First page")}${link(page - 1, "‹", "Previous page")}
-      <span class="pager-pos">Page <b>${int(page)}</b> of ${int(pages)}</span>
+      <span class="pager-pos">Page ${int(page)} of ${int(pages)}</span>
       ${link(page + 1, "›", "Next page")}${link(pages, "Last", "Last page")}
     </span>
-    <label class="pager-size"><span class="sr-only">Rows per page</span><select data-nav>${sizes}</select></label>
+    <label>Show rows <select data-nav aria-label="Rows per page">${sizes}</select></label>
+    <form data-goto="${esc(href("{p}"))}" data-pages="${pages}"><label>Page <input name="p" inputmode="numeric" aria-label="Page number"></label><button class="btn" type="submit">Goto</button></form>
   </div>`;
 }
 
-// A signed CKB amount: green when an address gains, red when it pays.
+// A signed CKB amount: primary when an address gains, red when it pays.
 export function delta(shannons) {
   const v = BigInt(shannons);
-  if (v === 0n) return `<span class="delta">0 <small class="muted">CKB</small></span>`;
-  return `<span class="delta ${v > 0n ? "pos" : "neg"}">${v > 0n ? "+" : "−"}${ckb(v > 0n ? v : -v)}</span>`;
+  if (v === 0n) return ckb(0n);
+  return `<span class="delta ${v > 0n ? "pos" : "neg"}">${v > 0n ? "+" : ""}${ckb(v)}</span>`;
 }
 
 export const tokenDelta = (amount) => {
@@ -199,17 +234,18 @@ function dataText(cell) {
   return String.fromCharCode(...bytes) + (cell.dataLength > bytes.length ? "…" : "");
 }
 
+// The "Detail" column: what the cell is, in a few words.
 export function decodedSummary(d, cell) {
   if (!d) {
     const text = dataText(cell);
-    if (text !== null) return `<span class="chip k-plain">Text</span><span class="summary mono">"${esc(text)}"</span>`;
-    if (cell.dataLength) return `<span class="chip k-plain">${int(cell.dataLength)} bytes of data</span>`;
-    return `<span class="chip k-plain">CKB only</span>`;
+    if (text !== null) return `<span class="chip">Text</span><span class="summary mono">"${esc(text)}"</span>`;
+    if (cell.dataLength) return `<span class="summary">${int(cell.dataLength)} bytes of data</span>`;
+    return `<span class="summary">CKB Capacity</span>`;
   }
   switch (d.kind) {
     case "code": return `<span class="chip k-code">Code</span><span class="summary">${esc(d.name)}</span>`;
-    case "dao-deposit": return `<span class="chip k-dao-deposit">DAO deposit</span>`;
-    case "dao-withdrawing": return `<span class="chip k-dao-withdrawing">DAO withdrawal</span><span class="summary">deposited at #${int(d.depositBlock)}</span>`;
+    case "dao-deposit": return `<span class="chip k-dao-deposit">Nervos DAO</span><span class="summary">Deposit</span>`;
+    case "dao-withdrawing": return `<span class="chip k-dao-withdrawing">Nervos DAO</span><span class="summary">Withdrawing, deposited at #${int(d.depositBlock)}</span>`;
     case "udt": return `<span class="chip k-udt">${d.standard}</span><span class="summary"><b>${BigInt(d.amount).toLocaleString("en-US")}</b> units</span>`;
     case "spore": return `<span class="chip k-spore">Spore</span><span class="summary">${d.text !== undefined ? esc(d.text) : esc(d.contentType)}</span>`;
     case "cluster": return `<span class="chip k-cluster">Cluster</span><span class="summary">${esc(d.name)}</span>`;
@@ -231,7 +267,7 @@ function decodedDetail(d) {
       body = `<div><span class="chip k-dao-deposit">Nervos DAO deposit</span></div><p>Data is 8 zero bytes, so no withdrawal has been requested yet. The unused capacity is what earns DAO compensation.</p>`;
       break;
     case "dao-withdrawing":
-      body = `<div><span class="chip k-dao-withdrawing">Nervos DAO withdrawal requested</span></div><p>Deposited at ${blockLink(d.depositBlock)}. The final withdrawal can happen once the lock period ends.</p>`;
+      body = `<div><span class="chip k-dao-withdrawing">Nervos DAO withdrawal requested</span></div><p>Deposited at block <a href="#/block/${d.depositBlock}">#${int(d.depositBlock)}</a>. The final withdrawal can happen once the lock period ends.</p>`;
       break;
     case "udt":
       body = `<div class="big">${BigInt(d.amount).toLocaleString("en-US")} <small class="muted">units</small></div>
@@ -269,7 +305,7 @@ function dataView(cell) {
 function rawFields(cell) {
   const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
   const script = (label, s) => (s ? row(`${label} code hash`, s.code_hash) + row(`${label} hash type`, s.hash_type) + row(`${label} args`, s.args) + row(`${label} script hash`, s.hash) : "");
-  return `<details class="raw detail-block"><summary class="muted">Raw fields</summary><dl style="margin-top:10px">
+  return `<details class="raw detail-block"><summary>Raw fields</summary><dl>
     ${row("Out point", cell.outPoint ? `${cell.outPoint.txHash}:${cell.outPoint.index}` : "—")}
     ${cell.since ? row("Since", cell.since.kind === "none" ? "0 (no time lock)" : esc(sinceText(cell.since))) : ""}
     ${row("Capacity", `${BigInt(cell.capacity).toLocaleString("en-US")} shannons`)}
@@ -282,6 +318,7 @@ function rawFields(cell) {
 
 const chevron = `<svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+// Inputs show where the cell came from; outputs whether it's live or who spent it.
 function stateCell(cell, role) {
   if (role === "input") {
     const since = sinceText(cell.since);
@@ -289,26 +326,30 @@ function stateCell(cell, role) {
   }
   const s = cell.status;
   if (!s) return "";
-  if (s.state === "live") return `<span class="pill ok" title="Not consumed by any transaction yet">Live</span>`;
-  if (s.state === "pending") return `<span class="pill wait">Pending</span>`;
-  return s.by ? `<a class="pill" href="#/tx/${s.by}" title="Consumed by ${s.by}">Spent · <span class="mono">${short(s.by, 6, 4)}</span></a>` : `<span class="pill">Spent</span>`;
+  if (s.state === "live") return `<span class="live-dot" title="Not consumed by any transaction yet">Live</span>`;
+  if (s.state === "pending") return `<span class="status wait">Pending</span>`;
+  return s.by ? `<a class="spent-link" href="#/tx/${s.by}" title="Consumed by ${s.by}">Spent by <b>${short(s.by, 6, 4)}</b></a>` : `<span class="muted">Spent</span>`;
 }
 
 // One cell as an expandable row: the summary is scannable, the detail is everything.
 export function cellRow(cell, i, { role = "output", open = false } = {}) {
   if (cell.unresolved) return `<li class="cell"><div class="cell-note">${esc(cell.unresolved)}</div></li>`;
   const lockName = cell.lock.resolved?.inner?.name ?? cell.lock.resolved?.name;
+  // Inputs get the CKB Explorer's arrow, linking back to the transaction that created the cell.
+  const arrow = role === "input" && cell.outPoint
+    ? `<a class="arrow" href="#/tx/${cell.outPoint.txHash}" title="Created in ${cell.outPoint.txHash}" aria-label="Go to the transaction that created this cell">${ICONS.arrow}</a>`
+    : "";
   return `<li><details class="cell"${open ? " open" : ""}>
     <summary>
       <span class="cell-idx">#${i}</span>
-      <span class="cell-owner"><span class="addr">${addrLink(cell.address)}</span><span class="lockname">${esc(lockName ?? "unknown lock")}</span></span>
+      <span class="cell-owner">${arrow}<span class="who"><span class="addr">${addrLink(cell.address)}</span><span class="lockname">${esc(lockName ?? "unknown lock")}</span></span></span>
       <span class="cell-what">${decodedSummary(cell.decoded, cell)}</span>
-      <span class="cell-cap"><span class="amount">${ckb(cell.capacity)}</span>${capacityBar(cell, { mini: true })}</span>
+      <span class="cell-cap">${ckb(cell.capacity)}${capacityBar(cell, { mini: true })}</span>
       <span class="cell-state">${stateCell(cell, role)}</span>
       ${chevron}
     </summary>
     <div class="cell-detail">
-      <div class="detail-block"><h3>Capacity</h3>${capacityBar(cell)}${capacityLegend(cell)}</div>
+      <div class="detail-block"><h3>Capacity usage</h3>${capacityBar(cell)}${capacityLegend(cell)}</div>
       ${decodedDetail(cell.decoded)}
       <div class="detail-block"><h3>Scripts</h3><div class="scripts">
         <div class="script-row lock"><span class="role">Lock</span><div>${scriptName(cell.lock)}<span class="args">${cell.address}</span></div></div>
@@ -318,6 +359,14 @@ export function cellRow(cell, i, { role = "output", open = false } = {}) {
       ${rawFields(cell)}
     </div>
   </details></li>`;
+}
+
+// The CKB Explorer's Input/Output card: "Input (3)   Detail   Capacity/Amount" over the rows.
+export function cellCard(title, cells, { role = "output", openAll = false, aside = "" } = {}) {
+  return `<section class="card">
+    <div class="cells-head"><span class="t">${title} (${cells.length})</span><span>Detail</span><span>Capacity/Amount</span><span class="aside">${aside}</span><span></span></div>
+    <ul class="cells">${cells.map((c, i) => cellRow(c, i, { role, open: openAll })).join("")}</ul>
+  </section>`;
 }
 
 export const cellList = (cells, opts = {}) =>

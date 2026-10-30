@@ -4,37 +4,66 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ckb-devnet-explorer</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='4' width='14' height='8' rx='1.5' fill='%2314213d'/%3E%3Crect x='1' y='4' width='3' height='8' rx='1.5' fill='%231f8a70'/%3E%3Crect x='4' y='4' width='4' height='8' fill='%23c77f00'/%3E%3Crect x='8' y='4' width='4' height='8' fill='%236d4aff'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23346dff'/%3E%3Crect x='6' y='12' width='4' height='8' rx='1' fill='%23fff' opacity='.55'/%3E%3Crect x='11' y='12' width='6' height='8' rx='1' fill='%23fff'/%3E%3Crect x='18' y='12' width='8' height='8' rx='1' fill='%23fff' opacity='.8'/%3E%3C/svg%3E">
+  <link rel="preload" href="/fonts/roboto-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <a class="skip" href="#page">Skip to content</a>
   <header class="topbar">
     <div class="topbar-inner">
-      <a class="wordmark" href="#/" aria-label="ckb-devnet-explorer, home">
-        <span class="wordmark-bar" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        ckb&#8209;devnet&#8209;explorer
+      <a class="logo" href="#/" aria-label="CKB Devnet Explorer, home">
+        <span class="logo-mark" aria-hidden="true">
+          <!-- A cell: capacity, lock, type and data, the explorer's capacity bar in miniature. -->
+          <svg viewBox="0 0 18 18"><rect x="0" y="5" width="3" height="8" rx="1" fill="#fff" opacity=".55"/><rect x="4" y="5" width="5" height="8" rx="1" fill="#fff"/><rect x="10" y="5" width="8" height="8" rx="1" fill="#fff" opacity=".8"/></svg>
+        </span>
+        <span class="logo-text"><span>CKB Devnet</span><span>Explorer</span></span>
       </a>
-      <form id="search" class="search" role="search">
-        <label class="sr-only" for="q">Search the devnet</label>
-        <svg class="search-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        <input id="q" name="q" placeholder="Tx hash, block, address or script code hash" autocomplete="off" spellcheck="false">
-        <kbd aria-hidden="true">/</kbd>
-      </form>
-      <a class="node" id="node" href="#/" title="Your devnet node">
-        <span class="node-dot" aria-hidden="true"></span>
-        <span id="node-label">Connecting…</span>
-      </a>
-    </div>
-    <nav class="nav" aria-label="Sections">
-      <div class="nav-inner">
+      <nav class="nav" aria-label="Sections">
         <a href="#/" data-section="home">Home</a>
         <a href="#/blocks" data-section="blocks">Blocks</a>
         <a href="#/transactions" data-section="transactions">Transactions</a>
-      </div>
-    </nav>
+      </nav>
+      <form id="search" class="search" role="search">
+        <label class="sr-only" for="q">Search the devnet</label>
+        <svg class="search-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <input id="q" name="q" placeholder="Block / Transaction / Address / Script Hash" autocomplete="off" spellcheck="false">
+        <kbd aria-hidden="true">Ctrl+K</kbd>
+      </form>
+      <a class="network" id="node" href="#/" title="Your devnet node">
+        <span class="network-name"><span class="network-dot" aria-hidden="true"></span>CKB Devnet</span>
+        <span class="network-sub" id="node-label">Connecting…</span>
+      </a>
+    </div>
   </header>
   <main id="page" class="page" tabindex="-1" aria-live="polite"></main>
+  <footer class="footer">
+    <div class="footer-cols">
+      <div>
+        <h2>Explorer</h2>
+        <ul>
+          <li><a href="https://github.com/wildanrhmn/ckb-devnet-explorer">GitHub</a></li>
+          <li><a href="https://github.com/wildanrhmn/ckb-devnet-explorer/issues">Report an issue</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Developer</h2>
+        <ul>
+          <li><a href="https://github.com/ckb-devrel/offckb">OffCKB</a></li>
+          <li><a href="https://docs.nervos.org">CKB Docs</a></li>
+          <li><a href="https://github.com/nervosnetwork/rfcs">RFCs</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Networks</h2>
+        <ul>
+          <li><a href="https://explorer.nervos.org">CKB Explorer (mainnet)</a></li>
+          <li><a href="https://testnet.explorer.nervos.org">CKB Explorer (testnet)</a></li>
+        </ul>
+      </div>
+    </div>
+    <p class="footer-note">A community tool for local OffCKB devnets, not affiliated with the Nervos Foundation. Its design follows the open-source CKB Explorer (MIT).</p>
+  </footer>
   <div id="toast" class="toast" role="status" hidden></div>
   <script type="module" src="/js/app.js"></script>
 </body>
