@@ -1,5 +1,5 @@
 import {
-  addrLink, api, blockLink, card, cellCard, cellList, ckb, detailCard, esc, icon, iconBtn, iconLink, int, plural,
+  addrLink, api, ckbIcon, blockLink, card, cellCard, cellList, ckb, detailCard, esc, icon, iconBtn, iconLink, int, plural,
   scriptName, short, sourceBadge, stamp, tags, txLink, when, outPointLink, copyBtn, txKind, table, progress, tabs, pager,
   delta, tokenDelta,
 } from "./ui.js";
@@ -232,7 +232,7 @@ export async function transaction(hash) {
       title: "Balance Changes",
       aside: "What each address gained or paid, fee included",
       flush: true,
-      body: table([["Address"], ["CKB", "r"], ["Tokens"]], changes),
+      body: table([["Address"], [`${ckbIcon} CKB`, "r"], ["Tokens"]], changes),
     }) : ""}
     ${cellCard("Input", tx.inputs, { role: "input", openAll: tx.inputs.length + tx.outputs.length <= 3 })}
     ${cellCard("Output", tx.outputs, { role: "output", openAll: tx.inputs.length + tx.outputs.length <= 3 })}
@@ -399,7 +399,7 @@ export async function address(addr) {
       hash: a.address,
       small: true,
       left: [
-        ["CKB Balance", ckb(a.balance), "Capacity of every live cell this address owns"],
+        [`${ckbIcon} CKB Balance`, ckb(a.balance), "Capacity of every live cell this address owns"],
         ["Occupied", `${int(a.occupied)} Bytes <small>across the cells shown</small>`],
         ["Tokens", a.tokens.length ? plural(a.tokens.length, "kind") : '<span class="muted">none</span>'],
       ],

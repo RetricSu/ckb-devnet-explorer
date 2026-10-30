@@ -67,7 +67,20 @@ The UI follows the design system of the official [CKB Explorer](https://github.c
 monospace hashes shortened with `...`, amounts with grey decimals, label/value detail cards, its table, tab and
 pager patterns, and its breakpoints (1440, 1200, 750 px). Its primary colour identifies the network (mainnet
 green `#00CC9B`, testnet purple `#9A2CEC`), so the devnet gets its own blue, `#346DFF`, which can't be mistaken
-for either. The logo is our own; the Nervos marks aren't used.
+for either.
+
+The header carries the Nervos "Common Knowledge Base" logo and the tab icon is the CKB token icon, both
+taken unmodified from the official explorer and used as the [Nervos media kit](https://www.nervos.org/media-kit)
+allows (no edits, recolouring or distortion). They belong to the Nervos Foundation and aren't covered by
+this project's licence; see `src/web/brand/NOTICE.md`. The footer says the tool isn't affiliated with or
+endorsed by the Foundation.
+
+**Home banner.** Like the official one, it leads with **Knowledge Size**: the CKBytes held by every live
+cell, read from the U field of the tip header's DAO field. offckb's devnet genesis has the same 8.4 billion
+CKB cell as mainnet, 60% of which counts as occupied because it's due to be burnt; the official explorer
+subtracts that 5.04 billion and so do we, when the cell is there. A second slide introduces the cell model
+and links to the CKB docs. The background is Conway's Game of Life on a grid of squares, the motif the
+Nervos brand calls its "Cell Model"; it pauses when off screen and stands still for reduced motion.
 
 Kinds, statuses and script sources are plain text ("Deployed", "sUDT", "genesis"), not pills or badges.
 The home dashboard has two charts in their dark panel: block time over the last 100 blocks (in place of their

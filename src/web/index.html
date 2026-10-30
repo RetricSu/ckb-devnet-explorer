@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ckb-devnet-explorer</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23346dff'/%3E%3Crect x='6' y='12' width='4' height='8' rx='1' fill='%23fff' opacity='.55'/%3E%3Crect x='11' y='12' width='6' height='8' rx='1' fill='%23fff'/%3E%3Crect x='18' y='12' width='8' height='8' rx='1' fill='%23fff' opacity='.8'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/png" href="/brand/ckb-token.png">
   <link rel="preload" href="/fonts/roboto-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -13,11 +13,8 @@
   <header class="topbar">
     <div class="topbar-inner">
       <a class="logo" href="#/" aria-label="CKB Devnet Explorer, home">
-        <span class="logo-mark" aria-hidden="true">
-          <!-- A cell: capacity, lock, type and data, the explorer's capacity bar in miniature. -->
-          <svg viewBox="0 0 18 18"><rect x="0" y="5" width="3" height="8" rx="1" fill="#fff" opacity=".55"/><rect x="4" y="5" width="5" height="8" rx="1" fill="#fff"/><rect x="10" y="5" width="8" height="8" rx="1" fill="#fff" opacity=".8"/></svg>
-        </span>
-        <span class="logo-text"><span>CKB Devnet</span><span>Explorer</span></span>
+        <img src="/brand/ckb-logo.png" width="114" height="30" alt="">
+        <span class="logo-label">Devnet<br>Explorer</span>
       </a>
       <nav class="nav" aria-label="Sections">
         <a href="#/" data-section="home">Home</a>
@@ -36,6 +33,30 @@
       </a>
     </div>
   </header>
+  <section id="banner" class="banner" hidden aria-roledescription="carousel" aria-label="About this devnet">
+    <canvas class="banner-life" aria-hidden="true"></canvas>
+    <div class="banner-slides" aria-live="off">
+      <div class="slide" data-slide="0" aria-roledescription="slide" aria-label="1 of 2">
+        <p class="banner-kicker">Knowledge Size</p>
+        <p class="banner-big"><span id="knowledge">—</span><span class="unit">CKBytes</span></p>
+        <p class="banner-sub">The state your devnet stores right now: the occupied capacity of every live cell.
+          <a href="https://docs.nervos.org/docs/tech-explanation/capacity">How capacity works</a></p>
+      </div>
+      <div class="slide" data-slide="1" aria-roledescription="slide" aria-label="2 of 2">
+        <p class="banner-kicker">New to CKB?</p>
+        <p class="banner-title">Everything on CKB is a cell</p>
+        <p class="banner-sub">Learn the cell model, then build it, deploy it and watch it here with OffCKB.</p>
+        <p class="banner-links">
+          <a class="banner-btn" href="https://docs.nervos.org/docs/tech-explanation/cell-model">Learn the Cell Model</a>
+          <a class="banner-btn ghost" href="https://docs.nervos.org/docs/getting-started/quick-start">Build with OffCKB</a>
+        </p>
+      </div>
+    </div>
+    <div class="banner-dots" role="group" aria-label="Choose a slide">
+      <button type="button" data-go="0" aria-label="Knowledge Size"></button>
+      <button type="button" data-go="1" aria-label="New to CKB?"></button>
+    </div>
+  </section>
   <main id="page" class="page" tabindex="-1" aria-live="polite"></main>
   <footer class="footer">
     <div class="footer-cols">
@@ -62,7 +83,7 @@
         </ul>
       </div>
     </div>
-    <p class="footer-note">A community tool for local OffCKB devnets, not affiliated with the Nervos Foundation. Its design follows the open-source CKB Explorer (MIT).</p>
+    <p class="footer-note">A community tool for local OffCKB devnets, not affiliated with or endorsed by the Nervos Foundation. Its design follows the open-source CKB Explorer (MIT). The Nervos logo and CKB token icon belong to the Nervos Foundation and are used unmodified, as its <a href="https://www.nervos.org/media-kit">media kit</a> allows.</p>
   </footer>
   <div id="toast" class="toast" role="status" hidden></div>
   <script type="module" src="/js/app.js"></script>

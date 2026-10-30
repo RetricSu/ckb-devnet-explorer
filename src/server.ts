@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { Explorer } from "./explorer.ts";
 
 const WEB_DIR = fileURLToPath(new URL("./web/", import.meta.url));
-const TYPES: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
+const TYPES: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".png": "image/png" };
 
 type Route = [RegExp, (m: RegExpMatchArray, url: URL) => Promise<unknown>, (m: RegExpMatchArray) => string];
 
@@ -20,7 +20,10 @@ export function startServer(explorer: Explorer, port: number, rpcUrl: string, pr
   const noTx = (m: RegExpMatchArray) => `No transaction ${m[1]} on this devnet.`;
   // [pattern, handler, message when the handler finds nothing]
   const routes: Route[] = [
-    [/^\/api\/info$/, async () => ({ rpcUrl, projects, tip: await explorer.tip(), resets: explorer.index.resets, node: await explorer.nodeVersion() }), () => ""],
+    [/^\/api\/info$/, async () => ({
+      rpcUrl, projects, tip: await explorer.tip(), resets: explorer.index.resets,
+      node: await explorer.nodeVersion(), knowledgeSize: await explorer.knowledgeSize(),
+    }), () => ""],
     [/^\/api\/home$/, () => explorer.home(), () => ""],
     [/^\/api\/blocks$/, (_, url) => explorer.blockList(...pageArgs(url)), () => ""],
     [/^\/api\/transactions$/, (_, url) => explorer.transactionList(...pageArgs(url)), () => ""],

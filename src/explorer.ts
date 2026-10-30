@@ -102,6 +102,25 @@ export class Explorer {
     return this.index.tip;
   }
 
+  // Knowledge Size, as the CKB Explorer's banner calls it: CKBytes held by every live cell,
+  // i.e. the chain's state. The tip header's DAO field packs four u64s (C, AR, S, U); U is
+  // the total occupied capacity in shannons.
+  //
+  // Like mainnet, offckb's devnet genesis has an 8.4 billion CKB cell of which 60% is counted
+  // as occupied because it's expected to be burnt. The CKB Explorer subtracts that 5.04 billion
+  // (talk.nervos.org/t/7138), so we do the same whenever this chain's genesis has that cell.
+  private burnt: bigint | null = null;
+  async knowledgeSize() {
+    if (this.burnt === null) {
+      const genesis = await getBlock(this.url, 0);
+      const has = genesis?.transactions[0]?.outputs.some((o) => BigInt(o.capacity) === 8_400_000_000n * 100_000_000n);
+      this.burnt = has ? 5_040_000_000n * 100_000_000n : 0n;
+    }
+    const header = await rpc<{ dao: string; number: string }>(this.url, "get_tip_header");
+    const u = Buffer.from(header.dao.slice(2), "hex").readBigUInt64LE(24) - this.burnt;
+    return { bytes: Number(u / 100_000_000n), block: num(header.number) };
+  }
+
   // The CKB version the devnet node runs, e.g. "0.208.0 (585395c 2026-07-14)".
   private version: string | null = null;
   async nodeVersion() {

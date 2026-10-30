@@ -24,6 +24,9 @@ export function ckb(shannons, { unit = true } = {}) {
   return `<span class="amount">${neg ? "−" : ""}${whole}<span class="dec">.${frac}</span>${unit ? '<span class="unit">CKB</span>' : ""}</span>`;
 }
 
+// The CKB token icon (Nervos Foundation, used unmodified; see brand/NOTICE.md).
+export const ckbIcon = `<img class="token-icon" src="/brand/ckb-token.png" width="20" height="20" alt="">`;
+
 export const int = (n) => Number(n).toLocaleString("en-US");
 export const plural = (n, word) => `${int(n)} ${word}${n === 1 ? "" : "s"}`;
 

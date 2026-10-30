@@ -1,9 +1,11 @@
 import { api, int } from "./ui.js";
 import * as pages from "./pages.js";
 import { mountCharts } from "./charts.js";
+import { initBanner } from "./banner.js";
 
 const $ = (s) => document.querySelector(s);
 const page = $("#page");
+const banner = initBanner($("#banner"));
 
 // [pattern on the path, page, nav section]. The query string (?page=2) is passed separately.
 const routes = [
@@ -29,6 +31,7 @@ async function render({ quiet = false } = {}) {
   const { path, query } = parseHash();
   const route = routes.find(([re]) => re.test(path));
   clearInterval(refreshTimer);
+  banner.show(route?.[2] === "home");
   document.querySelectorAll(".nav a").forEach((a) => a.toggleAttribute("aria-current", a.dataset.section === route?.[2]));
   if (!quiet) page.innerHTML = `<p class="loading">Loading…</p>`;
   try {
@@ -72,6 +75,7 @@ async function pollNode() {
       toast("The devnet was reset. Showing the new chain.", 5000);
       render();
     }
+    banner.setKnowledge(info.knowledgeSize?.bytes);
     lastTip = info.tip;
     lastResets = info.resets;
   } catch (err) {
