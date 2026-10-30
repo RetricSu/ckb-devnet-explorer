@@ -80,6 +80,19 @@ code { font: 13px var(--mono); background: var(--input); padding: 1px 5px; borde
 .nav a:hover { color: #fff; }
 .nav a[aria-current] { color: #fff; border-bottom-color: var(--primary); }
 
+/* Their grouped menus ("Blockchain", "Tokens"): a button that opens a small dropdown. */
+.nav-menu { position: relative; display: flex; align-items: stretch; }
+.nav-menu > button { display: flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-top: 3px solid transparent; border-bottom: 3px solid transparent; background: none; color: rgba(255, 255, 255, .7); font: 500 14px var(--sans); cursor: pointer; white-space: nowrap; }
+.nav-menu > button::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-2px) rotate(45deg); }
+.nav-menu > button:hover, .nav-menu.open > button { color: #fff; }
+.nav-menu.current > button { color: #fff; border-bottom-color: var(--primary); }
+.nav-sub { position: absolute; top: 100%; left: 0; z-index: 25; display: none; min-width: 190px; padding: 6px; border-radius: 4px; background: #fff; box-shadow: 0 8px 24px rgba(0, 0, 0, .25); }
+.nav-menu.open .nav-sub { display: grid; }
+@media (hover: hover) { .nav-menu:hover .nav-sub { display: grid; } }
+.nav-sub a { display: block; padding: 9px 12px; border: 0; border-radius: 4px; color: var(--text); font: 14px var(--sans); }
+.nav-sub a:hover { background: var(--input); color: var(--strong); }
+.nav-sub a[aria-current] { color: var(--primary); font-weight: 500; }
+
 .search { position: relative; flex: 1; max-width: 440px; margin-left: auto; }
 .search input { width: 100%; height: 36px; padding: 0 64px 0 38px; border: 0; border-radius: 4px; background: #fff; color: var(--strong); font: 14px var(--sans); }
 .search input::placeholder { color: #999; }
@@ -422,6 +435,22 @@ a.dash-link:hover b { color: var(--primary); }
 .notice.info { background: var(--primary-tint); border-color: var(--secondary); color: var(--text); }
 .page-note { margin: -8px 0 20px; font-size: 13px; color: var(--muted); }
 
+/* ---------- NFTs ---------- */
+.nft-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 16px; padding: 20px 0; }
+.nft-tile { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; color: var(--text); background: #fff; }
+.nft-tile:hover { border-color: var(--primary-dimmed); box-shadow: 0 4px 12px rgba(0, 0, 0, .08); color: var(--text); }
+.nft-art { display: grid; place-items: center; aspect-ratio: 1 / 1; background: #0b0d12; overflow: hidden; }
+.nft-meta { display: grid; gap: 2px; padding: 10px 12px; font-size: 12px; color: var(--muted); }
+.nft-meta b { font-size: 13px; color: var(--strong); font-weight: 500; }
+/* Pixel art stays crisp when scaled up. */
+.spore-img { width: 72%; height: auto; image-rendering: pixelated; }
+.spore-img.large { width: 240px; max-width: 100%; }
+.spore-textview { margin: 0; width: 100%; height: 100%; padding: 14px; overflow: hidden; background: #f7f7f7; color: var(--strong); font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
+.spore-textview.large { height: auto; max-height: 420px; overflow: auto; border-radius: 4px; font-size: 14px; }
+.spore-blank { color: rgba(255, 255, 255, .6); font-size: 12px; text-align: center; }
+.spore-stage { display: grid; place-items: center; padding: 24px 0; }
+.spore-stage .spore-img { padding: 16px; background: #0b0d12; border-radius: 4px; box-sizing: content-box; }
+
 /* ---------- transaction & block extras ---------- */
 .token-change { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
 .token-change + .token-change { margin-top: 4px; }
@@ -472,7 +501,13 @@ details.hex code { display: block; margin-top: 6px; background: none; padding: 0
   .search kbd { display: none; }
   .logo img { width: 95px; height: 25px; }
   .nav { order: 4; flex-basis: 100%; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; }
-  .nav a { padding: 10px 12px; }
+  .nav a, .nav-menu > button { padding: 10px 12px; }
+  /* On narrow screens the menus fold open into the scrolling nav row. */
+  .nav-menu > button { display: none; }
+  .nav-sub { position: static; display: flex !important; min-width: 0; padding: 0; background: none; box-shadow: none; }
+  .nav-sub a { padding: 10px 12px; color: rgba(255, 255, 255, .7); font-weight: 500; border-radius: 0; border-top: 3px solid transparent; border-bottom: 3px solid transparent; white-space: nowrap; }
+  .nav-sub a:hover { background: none; color: #fff; }
+  .nav-sub a[aria-current] { color: #fff; border-bottom-color: var(--primary); }
 }
 @media (max-width: 750px) {
   :root { --gutter: 16px; }

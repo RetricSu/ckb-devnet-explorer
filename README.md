@@ -18,8 +18,15 @@ set up: it reads your devnet node directly and labels every script by name, incl
   tokens), every consumed and created cell as an expandable row, cell and header deps, witnesses, and the raw
   JSON to copy or download. A transaction the node rejected shows the rejection reason.
 - **Block**: miner, reward breakdown, epoch, size, cycles, difficulty, proposals, uncles and the raw header.
-- **Address** (balance, tokens, live cells, history) and **script** (where its code lives, which cells use it
-  as lock or type).
+- **Address**: balance, occupied capacity, DAO deposit, blocks mined, and paginated tabs for its transactions
+  (with the CKB change in each), live cells and tokens. offckb's test accounts and the miner are labelled.
+- **Script**: where its code lives and tabs for the cells that use it as type or lock, its transactions and
+  the code cell. **Scripts** lists every script the explorer can name.
+- **Tokens**: every sUDT and xUDT on the chain with supply, issuer, holders and transactions.
+- **NFTs**: live spores (images drawn, text and JSON shown), each with its history (minted, transferred,
+  melted), and spore clusters.
+- **Nervos DAO**: deposits and withdrawals, estimated compensation, and when each withdrawal unlocks.
+- **Accounts**: offckb's 20 test accounts with their balances and the roles offckb gives them.
 - **Faucet**: send devnet CKB to any `ckt1…` address, from offckb's test account #18 (not #0-#2, offckb's example accounts, or #19, its deployer). Also one click
   away on every address page. It only works on a devnet and only for requests from your own machine.
 - **Search** for a tx hash, block number or hash, address, or script code hash. Press `/` or `Ctrl+K` to jump to it.

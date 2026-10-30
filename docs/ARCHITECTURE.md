@@ -50,6 +50,13 @@ page shows a toast when that happens.
 | `GET /api/address/:address` | Balance, live cells, token balances, recent transactions. |
 | `GET /api/script/:codeHash/:hashType` | Name, code location, cells using it as lock or type. |
 | `GET /api/search?q=` | Which page a query points at. |
+| `GET /api/address/:address?tab=&page=&size=` | Overview plus one paginated tab: transactions, cells or tokens. |
+| `GET /api/script/:codeHash/:hashType?tab=` | Overview plus cells as type, cells as lock, transactions or the code cell. |
+| `GET /api/scripts`, `GET /api/accounts` | Every known script with usage; offckb's test accounts with balances. |
+| `GET /api/tokens`, `GET /api/token/:typeHash` | sUDT/xUDT tokens with supply, issuer and holders; one token's holders or transactions. |
+| `GET /api/nfts`, `GET /api/spore/:id` | Live spores and clusters; one spore with its history. |
+| `GET /api/spore/:id/content` | A spore's image bytes. Only image types, with `nosniff` and a sandboxing CSP, since spore content is whatever its minter chose. |
+| `GET /api/dao?tab=` | DAO totals plus deposits, depositors or transactions. |
 | `GET /api/faucet` | Whether the faucet is available, its account and balance, and recent claims with their status. |
 | `POST /api/faucet` | `{ address, amount }`: sends devnet CKB. The only endpoint that writes. |
 
@@ -78,6 +85,19 @@ only as JSON (another website can't send that without a CORS preflight, which th
 only from a localhost origin; amounts are whole CKB from 61 (the smallest secp256k1 cell) to 1,000,000.
 Claims run one at a time and each waits until the previous one is committed, because two transfers built
 back to back pick the same input and the node rejects the second (`PoolRejectedRBF`).
+
+## Tokens, NFTs and the DAO
+
+All three read the indexer by type script prefix (every cell whose type is sUDT, xUDT, spore, cluster or
+the DAO) and work things out from the cells: a token is one full type script, its supply the sum of its
+live cells and its issuer the lock hash at the start of its args; a spore's id is its type args, and its
+history is every transaction that touched that exact type script (output only: minted; input and output:
+transferred; input only: melted).
+
+DAO compensation follows RFC 0023: the part of a cell's capacity that isn't occupied grows with AR, the
+accumulated rate in each header's DAO field, so a deposit made at AR_d is worth `free * AR_now / AR_d`;
+a withdrawing cell stops at the AR of the block that requested the withdrawal. A withdrawal can complete
+once a whole number of 180-epoch cycles has passed since the deposit, which is the "unlocks at" epoch.
 
 ## Design
 

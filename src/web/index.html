@@ -18,9 +18,22 @@
       </a>
       <nav class="nav" aria-label="Sections">
         <a href="#/" data-section="home">Home</a>
-        <a href="#/blocks" data-section="blocks">Blocks</a>
-        <a href="#/transactions" data-section="transactions">Transactions</a>
-        <a href="#/scripts" data-section="scripts">Scripts</a>
+        <div class="nav-menu">
+          <button type="button" aria-expanded="false" aria-haspopup="true">Blockchain</button>
+          <div class="nav-sub">
+            <a href="#/blocks" data-section="blocks">Blocks</a>
+            <a href="#/transactions" data-section="transactions">Transactions</a>
+            <a href="#/scripts" data-section="scripts">Scripts</a>
+          </div>
+        </div>
+        <div class="nav-menu">
+          <button type="button" aria-expanded="false" aria-haspopup="true">Tokens</button>
+          <div class="nav-sub">
+            <a href="#/tokens" data-section="tokens">sUDT &amp; xUDT</a>
+            <a href="#/nfts" data-section="nfts">NFTs (Spore)</a>
+          </div>
+        </div>
+        <a href="#/dao" data-section="dao">Nervos DAO</a>
         <a href="#/accounts" data-section="accounts">Accounts</a>
         <a href="#/faucet" data-section="faucet">Faucet</a>
       </nav>

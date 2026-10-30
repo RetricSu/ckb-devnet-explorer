@@ -16,6 +16,11 @@ const routes = [
   [/^\/block\/(\d+|0x[0-9a-f]{64})$/i, (m) => pages.block(m[1]), "blocks"],
   [/^\/address\/(ck[bt]1[0-9a-z]+)$/i, (m, q) => pages.address(m[1], q), null],
   [/^\/script\/(0x[0-9a-f]{64})\/(type|data|data1|data2)$/i, (m, q) => pages.script(m[1].toLowerCase(), m[2], q), "scripts"],
+  [/^\/tokens$/, (_, q) => pages.tokens(q), "tokens"],
+  [/^\/token\/(0x[0-9a-f]{64})$/i, (m, q) => pages.token(m[1].toLowerCase(), q), "tokens"],
+  [/^\/nfts$/, () => pages.nfts(), "nfts"],
+  [/^\/spore\/(0x[0-9a-f]{64})$/i, (m) => pages.spore(m[1].toLowerCase()), "nfts"],
+  [/^\/dao$/, (_, q) => pages.dao(q), "dao"],
   [/^\/faucet$/, (_, q) => pages.faucet(q), "faucet"],
   [/^\/scripts$/, (_, q) => pages.scripts(q), "scripts"],
   [/^\/accounts$/, () => pages.accounts(), "accounts"],
@@ -38,6 +43,10 @@ async function render({ quiet = false } = {}) {
   if (!quiet) { unmount?.(); unmount = null; }
   banner.show(route?.[2] === "home");
   document.querySelectorAll(".nav a").forEach((a) => a.toggleAttribute("aria-current", a.dataset.section === route?.[2]));
+  document.querySelectorAll(".nav-menu").forEach((m) => {
+    m.classList.toggle("current", !!m.querySelector("a[aria-current]"));
+    if (!quiet) closeMenu(m); // a live refresh must not shut a menu someone just opened
+  });
   if (!quiet) page.innerHTML = `<p class="loading">Loading…</p>`;
   try {
     if (!route) throw new Error("There's no page at this address. Use the search box, or go back home.");
@@ -93,6 +102,27 @@ async function pollNode() {
     $("#node-label").textContent = "offline";
   }
 }
+
+// ---- nav menus (their "Blockchain" / "Tokens" dropdowns) ----
+
+function closeMenu(m) {
+  m.classList.remove("open");
+  m.querySelector("button")?.setAttribute("aria-expanded", "false");
+}
+document.querySelectorAll(".nav-menu > button").forEach((b) => b.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const m = b.parentElement;
+  const open = !m.classList.contains("open");
+  document.querySelectorAll(".nav-menu").forEach(closeMenu);
+  m.classList.toggle("open", open);
+  b.setAttribute("aria-expanded", String(open));
+}));
+document.addEventListener("click", (e) => { if (!e.target.closest(".nav-menu")) document.querySelectorAll(".nav-menu").forEach(closeMenu); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const m = document.querySelector(".nav-menu.open");
+  if (m) { closeMenu(m); m.querySelector("button").focus(); }
+});
 
 // ---- search ----
 

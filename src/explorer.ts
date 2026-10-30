@@ -1,7 +1,7 @@
 import { ccc } from "@ckb-ccc/core";
 import { getBlock, rpc, rpcBatch, type RpcBlock, type RpcOutput, type RpcScript, type RpcTransaction } from "./rpc.ts";
 import { Resolver, type Resolved } from "./resolver.ts";
-import { dataHash, decodeByType, scriptHash, type Decoded } from "./decode.ts";
+import { clusterData, dataHash, decodeByType, scriptHash, sporeContent, type Decoded } from "./decode.ts";
 import { ChainIndex, parseCellbaseWitness, type BlockSummary, type TxSummary } from "./chain.ts";
 import { decodeSince, difficultyOf, epochOf, parseWitness, type Since } from "./txfields.ts";
 import type { KnownScript } from "./scripts.ts";
@@ -57,6 +57,8 @@ type EconomicState = {
   finalized_at: string;
 };
 
+// Just the script, without the extra fields a ScriptView carries.
+const rpcScript = (s: RpcScript): RpcScript => ({ code_hash: s.code_hash, hash_type: s.hash_type, args: s.args });
 const scriptBytes = (s: RpcScript) => 32 + 1 + (s.args.length - 2) / 2;
 const toCcc = (s: RpcScript) => ccc.Script.from({ codeHash: s.code_hash, hashType: s.hash_type as ccc.HashType, args: s.args });
 // Address encoding only needs the prefix, not a network connection.
@@ -608,6 +610,235 @@ export class Explorer {
       return { index: a.index, role, address: a.address, balance: capacity ? BigInt(capacity.capacity).toString() : "0", cells: cells.length, transactions: txs.length };
     }));
     return { available: true, faucet: FAUCET_ACCOUNT, accounts };
+  }
+
+  // ---- tokens (sUDT / xUDT) -------------------------------------------------------------
+
+  // Every live sUDT and xUDT cell on the chain, grouped by token (its full type script).
+  private async udtTokens() {
+    const scripts = this.resolver.all().filter((s) => s.name === "sudt" || s.name === "xudt");
+    const cells = (await Promise.all(scripts.map((s) => this.indexerAll<IndexerCell>("get_cells", {
+      script: { code_hash: s.codeHash, hash_type: s.hashType, args: "0x" }, script_type: "type", script_search_mode: "prefix",
+    })))).flat().map((c) => this.indexerCell(c, { state: "live" }));
+    type Token = { type: ScriptView; standard: string; owner: string; supply: bigint; cells: CellView[]; holders: Map<string, bigint> };
+    const tokens = new Map<string, Token>();
+    for (const c of cells) {
+      if (c.decoded?.kind !== "udt" || !c.type) continue;
+      const t: Token = tokens.get(c.type.hash) ?? { type: c.type, standard: c.decoded.standard, owner: c.decoded.owner, supply: 0n, cells: [], holders: new Map() };
+      const amount = BigInt(c.decoded.amount);
+      t.supply += amount;
+      t.cells.push(c);
+      t.holders.set(c.address, (t.holders.get(c.address) ?? 0n) + amount);
+      tokens.set(c.type.hash, t);
+    }
+    return tokens;
+  }
+
+  // The issuer of a UDT is a lock hash; name it when it's one of offckb's accounts.
+  private issuerOf(ownerLockHash: string) {
+    for (const a of offckbAccounts() ?? []) {
+      const secp = this.resolver.all().find((x) => x.name === "secp256k1_blake160_sighash_all");
+      if (!secp) return null;
+      const lock = { code_hash: secp.codeHash, hash_type: secp.hashType, args: a.args };
+      if (scriptHash(lock) === ownerLockHash) return { address: a.address, account: a.index };
+    }
+    return null;
+  }
+
+  async tokens() {
+    await this.tip();
+    const tokens = await this.udtTokens();
+    const list = await Promise.all([...tokens.entries()].map(async ([hash, t]) => {
+      const txs = await this.indexerAll<GroupedTx>("get_transactions", { script: rpcScript(t.type), script_type: "type", script_search_mode: "exact", group_by_transaction: true });
+      return {
+        hash, standard: t.standard, type: t.type, owner: t.owner, issuer: this.issuerOf(t.owner),
+        supply: t.supply.toString(), holders: [...t.holders.values()].filter((v) => v > 0n).length, cells: t.cells.length,
+        transactions: txs.length, created: txs.length ? this.txRow(txs.at(-1)!) : null,
+      };
+    }));
+    return list.sort((a, b) => b.holders - a.holders || b.transactions - a.transactions);
+  }
+
+  async token(hash: string, tab: string, pageNo: number, size: number) {
+    await this.tip();
+    const t = (await this.udtTokens()).get(hash.toLowerCase());
+    if (!t) return null;
+    const txs = await this.indexerAll<GroupedTx>("get_transactions", { script: rpcScript(t.type), script_type: "type", script_search_mode: "exact", group_by_transaction: true });
+    const holders = [...t.holders.entries()].filter(([, v]) => v > 0n).sort((a, b) => (b[1] > a[1] ? 1 : b[1] < a[1] ? -1 : 0));
+    const which = tab === "transactions" ? "transactions" : "holders";
+    const list = which === "holders"
+      ? (() => {
+        // Holders are ranked, so page 1 is the top of the list (page() expects oldest first).
+        const p = page(holders.slice().reverse(), pageNo, size);
+        return { ...p, items: p.items.map(([address, amount]) => ({ address, amount: amount.toString(), share: t.supply ? Number((amount * 10000n) / t.supply) / 100 : 0 })) };
+      })()
+      : (() => { const p = page(txs.slice().reverse(), pageNo, size); return { ...p, items: p.items.map((x) => this.txRow(x)) }; })();
+    return {
+      hash: hash.toLowerCase(), standard: t.standard, type: t.type, owner: t.owner, issuer: this.issuerOf(t.owner),
+      supply: t.supply.toString(), holders: holders.length, cells: t.cells.length, transactions: txs.length,
+      created: txs.length ? this.txRow(txs.at(-1)!) : null, tab: which, list,
+    };
+  }
+
+  // ---- NFTs (Spore) ---------------------------------------------------------------------
+
+  private async sporeCells(name: "spore" | "spore_cluster") {
+    const scripts = this.resolver.all().filter((s) => s.name === name);
+    return (await Promise.all(scripts.map((s) => this.indexerAll<IndexerCell>("get_cells", {
+      script: { code_hash: s.codeHash, hash_type: s.hashType, args: "0x" }, script_type: "type", script_search_mode: "prefix",
+    })))).flat();
+  }
+
+  private sporeView(c: IndexerCell) {
+    const content = sporeContent(c.output_data ?? "0x");
+    const cell = this.indexerCell(c, { state: "live" });
+    return {
+      id: c.output.type!.args,
+      owner: cell.address,
+      contentType: content?.contentType ?? "unknown",
+      size: content?.bytes.length ?? 0,
+      text: content && /^(text\/|application\/json)/.test(content.contentType) ? new TextDecoder().decode(content.bytes.slice(0, 600)) : null,
+      clusterId: content?.clusterId ?? null,
+      capacity: cell.capacity,
+      blockNumber: num(c.block_number),
+      outPoint: cell.outPoint,
+    };
+  }
+
+  async nfts() {
+    await this.tip();
+    const [clusterCells, sporeCellList] = await Promise.all([this.sporeCells("spore_cluster"), this.sporeCells("spore")]);
+    const spores = sporeCellList.map((c) => this.sporeView(c));
+    const clusters = clusterCells.map((c) => {
+      const data = clusterData(c.output_data ?? "0x");
+      const id = c.output.type!.args;
+      return {
+        id, name: data?.name ?? "Unnamed cluster", description: data?.description ?? "",
+        owner: this.indexerCell(c, { state: "live" }).address, blockNumber: num(c.block_number),
+        spores: spores.filter((s) => s.clusterId === id).length,
+      };
+    });
+    return {
+      clusters: clusters.sort((a, b) => b.blockNumber - a.blockNumber),
+      spores: spores.sort((a, b) => b.blockNumber - a.blockNumber),
+    };
+  }
+
+  // A spore and its history: minted, transferred (its cell is consumed and recreated), melted.
+  async spore(id: string) {
+    await this.tip();
+    const all = await this.sporeCells("spore");
+    const cell = all.find((c) => c.output.type!.args === id.toLowerCase());
+    const sporeScript = this.resolver.all().find((s) => s.name === "spore");
+    const type = cell?.output.type ?? (sporeScript ? { code_hash: sporeScript.codeHash, hash_type: sporeScript.hashType, args: id.toLowerCase() } : null);
+    if (!type) return null;
+    const txs = await this.indexerAll<GroupedTx>("get_transactions", { script: type, script_type: "type", script_search_mode: "exact", group_by_transaction: true });
+    if (!cell && !txs.length) return null;
+    const history = txs.slice().reverse().map((t) => {
+      const ins = t.cells.some(([io]) => io === "input");
+      const outs = t.cells.some(([io]) => io === "output");
+      return { ...this.txRow(t), event: ins && outs ? "Transferred" : outs ? "Minted" : "Melted" };
+    });
+    return { id: id.toLowerCase(), live: !!cell, spore: cell ? this.sporeView(cell) : null, history };
+  }
+
+  // The raw bytes, for <img>. The server only serves image types, with a sandboxing CSP.
+  async sporeContentOf(id: string) {
+    const cell = (await this.sporeCells("spore")).find((c) => c.output.type!.args === id.toLowerCase());
+    return cell ? sporeContent(cell.output_data ?? "0x") : null;
+  }
+
+  // ---- Nervos DAO -----------------------------------------------------------------------
+
+  // AR, the DAO's accumulated rate, is the second u64 of a header's DAO field (RFC 0023).
+  private async header(n: number) {
+    const h = await rpc<{ dao: string; epoch: string; number: string }>(this.url, "get_header_by_number", [hex(n)]);
+    return { ar: Buffer.from(h.dao.slice(2), "hex").readBigUInt64LE(8), epoch: epochOf(h.epoch) };
+  }
+
+  async dao(tab: string, pageNo: number, size: number) {
+    const tip = await this.tip();
+    const daoScript = this.resolver.all().find((s) => s.name === "dao");
+    if (!daoScript) return null;
+    const type = { code_hash: daoScript.codeHash, hash_type: daoScript.hashType, args: "0x" };
+    const [raw, txs, tipHeader] = await Promise.all([
+      this.indexerAll<IndexerCell>("get_cells", { script: type, script_type: "type", script_search_mode: "exact" }),
+      this.indexerAll<GroupedTx>("get_transactions", { script: type, script_type: "type", script_search_mode: "exact", group_by_transaction: true }),
+      this.header(tip),
+    ]);
+
+    // Compensation (RFC 0023): the capacity that isn't occupied grows with AR, so a deposit
+    // made at AR_d is worth free * AR_now / AR_d + occupied. A withdrawing cell stops at the AR
+    // of the block that requested the withdrawal. Withdrawal completes once a whole number of
+    // 180-epoch cycles has passed since the deposit.
+    const cells = await Promise.all(raw.map(async (c) => {
+      const cell = this.indexerCell(c, { state: "live" });
+      const withdrawing = cell.decoded?.kind === "dao-withdrawing";
+      const depositBlock = withdrawing && cell.decoded?.kind === "dao-withdrawing" ? cell.decoded.depositBlock : num(c.block_number);
+      const [dep, end] = await Promise.all([this.header(depositBlock), withdrawing ? this.header(num(c.block_number)) : Promise.resolve(tipHeader)]);
+      const capacity = BigInt(cell.capacity);
+      const free = capacity - BigInt(cell.occupied) * 100_000_000n;
+      const compensation = free > 0n ? (free * end.ar) / dep.ar - free : 0n;
+      let unlock: { number: number; index: number; length: number } | null = null;
+      if (withdrawing) {
+        const frac = (e: { number: number; index: number; length: number }) => e.number + (e.length ? e.index / e.length : 0);
+        const cycles = Math.max(1, Math.ceil((frac(end.epoch) - frac(dep.epoch)) / 180));
+        unlock = { number: dep.epoch.number + cycles * 180, index: dep.epoch.index, length: dep.epoch.length };
+      }
+      return {
+        address: cell.address, capacity: capacity.toString(), status: withdrawing ? "withdrawing" : "deposited",
+        depositBlock, blockNumber: num(c.block_number), compensation: compensation.toString(), unlock, outPoint: cell.outPoint,
+      };
+    }));
+
+    const sum = (f: (c: (typeof cells)[number]) => boolean) => cells.filter(f).reduce((a, c) => a + BigInt(c.capacity), 0n).toString();
+    const byAddress = new Map<string, { address: string; deposited: bigint; compensation: bigint; cells: number }>();
+    for (const c of cells) {
+      const d = byAddress.get(c.address) ?? { address: c.address, deposited: 0n, compensation: 0n, cells: 0 };
+      d.deposited += BigInt(c.capacity);
+      d.compensation += BigInt(c.compensation);
+      d.cells++;
+      byAddress.set(c.address, d);
+    }
+    const depositors = [...byAddress.values()].sort((a, b) => (b.deposited > a.deposited ? 1 : -1))
+      .map((d) => ({ ...d, deposited: d.deposited.toString(), compensation: d.compensation.toString() }));
+
+    // How long 180 epochs takes on this devnet, from its own block time and epoch length.
+    const recent = this.index.blocks.slice(-21);
+    const gaps = recent.slice(1).map((b, i) => b.timestamp - recent[i].timestamp).sort((a, b) => a - b);
+    const blockMs = gaps.length ? gaps[Math.floor(gaps.length / 2)] : null;
+
+    const which = tab === "depositors" || tab === "transactions" ? tab : "deposits";
+    let list: unknown;
+    if (which === "deposits") list = page(cells.slice().sort((a, b) => a.blockNumber - b.blockNumber), pageNo, size);
+    else if (which === "depositors") list = page(depositors.slice().reverse(), pageNo, size);
+    else {
+      const p = page(txs.slice().reverse(), pageNo, size);
+      list = { ...p, items: await Promise.all(p.items.map(async (t) => ({ ...this.txRow(t), action: await this.daoAction(t.tx_hash, daoScript.codeHash) }))) };
+    }
+    return {
+      deposited: sum((c) => c.status === "deposited"),
+      withdrawing: sum((c) => c.status === "withdrawing"),
+      compensation: cells.reduce((a, c) => a + BigInt(c.compensation), 0n).toString(),
+      depositors: depositors.length,
+      cells: cells.length,
+      transactions: txs.length,
+      epoch: tipHeader.epoch,
+      lockPeriodMs: blockMs ? 180 * tipHeader.epoch.length * blockMs : null,
+      tab: which,
+      list,
+    };
+  }
+
+  // What a DAO transaction did: deposit, withdrawal request (phase 1) or withdrawal (phase 2).
+  private async daoAction(hash: string, daoCodeHash: string) {
+    const tx = await this.fullTx(hash);
+    if (!tx) return "—";
+    const isDao = (o: RpcOutput) => o.type?.code_hash === daoCodeHash;
+    const outs = tx.outputs.map((o, i) => ({ o, d: tx.outputs_data[i] })).filter((x) => isDao(x.o));
+    if (outs.some((x) => /^0x0{16}$/.test(x.d))) return "Deposit";
+    if (outs.length) return "Withdrawal request";
+    return "Withdrawal";
   }
 
   // ---- search ---------------------------------------------------------------------------

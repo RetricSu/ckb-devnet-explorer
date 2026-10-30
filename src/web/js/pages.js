@@ -575,6 +575,225 @@ export async function accounts() {
   return { title: "Accounts", html, refresh: true };
 }
 
+// ---------------------------------------------------------------- tokens
+
+const issuerText = (t) => t.issuer
+  ? `${addrLink(t.issuer.address)}<span class="sub">offckb account #${t.issuer.account}</span>`
+  : `<span class="mono" title="Issuer lock hash ${t.owner}">${short(t.owner, 10, 8)}</span><span class="sub">issuer lock hash</span>`;
+
+// Every sUDT and xUDT on the chain, like the CKB Explorer's token lists.
+export async function tokens(q) {
+  const list = await api("/api/tokens");
+  const filter = q.get("tab") ?? "all";
+  const shown = list.filter((t) => filter === "all" || t.standard.toLowerCase() === filter);
+  const rows = shown.map((t) => `<tr>
+      <td><a class="script-name" href="#/token/${t.hash}">${t.standard}</a> <span class="mono muted" title="${t.hash}">${short(t.hash, 8, 6)}</span><span class="sub">${scriptName(t.type, { badge: true })}</span></td>
+      <td class="opt">${issuerText(t)}</td>
+      <td class="r"><b>${BigInt(t.supply).toLocaleString("en-US")}</b></td>
+      <td class="r">${int(t.holders)}</td>
+      <td class="r opt">${int(t.transactions)}</td>
+      <td>${t.created ? `${blockLink(t.created.blockNumber)}<span class="sub">${stamp(t.created.timestamp)}</span>` : "—"}</td>
+    </tr>`);
+  const count = (s) => list.filter((t) => t.standard.toLowerCase() === s).length;
+  const tabBar = tabs([
+    { label: `All (${list.length})`, href: "#/tokens", current: filter === "all" },
+    { label: `sUDT (${count("sudt")})`, href: "#/tokens?tab=sudt", current: filter === "sudt" },
+    { label: `xUDT (${count("xudt")})`, href: "#/tokens?tab=xudt", current: filter === "xudt" },
+  ]);
+  const html = `<section class="card flush">${tabBar}${rows.length
+    ? table([["Token"], ["Issuer", "opt"], ["Total Supply", "r"], ["Holders", "r"], ["Transactions", "r opt"], ["Created"]], rows)
+    : empty("No tokens yet. Issue one with <code>offckb udt issue</code> or your own sUDT/xUDT script and it shows up here.")}</section>
+    <p class="page-note">Amounts are raw units: sUDT and xUDT cells don't record decimals.</p>`;
+  return { title: "Tokens", html };
+}
+
+export async function token(hash, q) {
+  const pageNo = Number(q.get("page")) || 1;
+  const size = Number(q.get("size")) || 20;
+  const t = await api(`/api/token/${hash}?tab=${encodeURIComponent(q.get("tab") ?? "")}&page=${pageNo}&size=${size}`);
+  const base = `#/token/${t.hash}`;
+  const overview = detailCard({
+    title: t.standard,
+    hash: t.hash,
+    hashText: t.hash,
+    small: true,
+    left: [
+      ["Standard", t.standard === "sUDT" ? "sUDT (RFC 0025)" : "xUDT (RFC 0052)"],
+      ["Type Script", scriptName(t.type)],
+      ["Issuer", t.issuer ? `${addrLink(t.issuer.address)} <small>account #${t.issuer.account}</small>` : `<span class="mono">${short(t.owner, 10, 8)}</span>`, "The lock whose hash starts the type script args: only it can mint"],
+      ["Type Args", `<span class="mono" title="${t.type.args}">${short(t.type.args, 12, 10)}</span>`],
+    ],
+    right: [
+      ["Total Supply", `<b>${BigInt(t.supply).toLocaleString("en-US")}</b> <small>units</small>`, "Sum of every live cell of this token"],
+      ["Holders", int(t.holders)],
+      ["Live Cells", int(t.cells)],
+      ["Created", t.created ? `${blockLink(t.created.blockNumber)} <small>${stamp(t.created.timestamp)}</small>` : "—"],
+    ],
+  });
+  const tabBar = tabs([
+    { label: `Holders (${int(t.holders)})`, href: base, current: t.tab === "holders" },
+    { label: `Transactions (${int(t.transactions)})`, href: `${base}?tab=transactions`, current: t.tab === "transactions" },
+  ]);
+  let body;
+  if (t.tab === "holders") {
+    const rows = t.list.items.map((h, i) => `<tr>
+        <td>${int((t.list.page - 1) * t.list.size + i + 1)}</td>
+        <td>${addrLink(h.address, { head: 20, tail: 12 })}</td>
+        <td class="r"><b>${BigInt(h.amount).toLocaleString("en-US")}</b></td>
+        <td class="r">${h.share.toFixed(2)}%</td>
+      </tr>`);
+    body = rows.length ? table([["Rank"], ["Address"], ["Balance", "r"], ["Share", "r"]], rows) : empty("Nobody holds this token any more.");
+  } else {
+    const rows = t.list.items.map((x) => `<tr>
+        <td>${txLink(x.hash, { head: 20, tail: 20 })}</td>
+        <td>${blockLink(x.blockNumber)}</td>
+        <td class="nowrap">${stamp(x.timestamp)}</td>
+      </tr>`);
+    body = rows.length ? table([["Transaction Hash"], ["Height"], ["Time"]], rows) : empty("No transactions.");
+  }
+  const foot = t.list.total ? `<div class="card-foot">${pager(t.list, base, t.tab === "transactions" ? "tab=transactions" : "")}</div>` : "";
+  return { title: `${t.standard} ${short(t.hash, 8, 6)}`, html: `${overview}<section class="card flush">${tabBar}${body}${foot}</section>` };
+}
+
+// ---------------------------------------------------------------- NFTs (Spore)
+
+// What a spore looks like in a tile or on its own page: images drawn, text and JSON shown.
+function sporePreview(s, { large = false } = {}) {
+  if (/^image\//.test(s.contentType)) return `<img class="spore-img${large ? " large" : ""}" src="/api/spore/${s.id}/content" alt="Spore ${short(s.id, 8, 6)}, ${esc(s.contentType)}">`;
+  if (s.text != null) {
+    let text = s.text;
+    if (s.contentType.startsWith("application/json")) { try { text = JSON.stringify(JSON.parse(s.text), null, 2); } catch {} }
+    return `<pre class="spore-textview${large ? " large" : ""}">${esc(text)}</pre>`;
+  }
+  return `<div class="spore-blank">${esc(s.contentType)}<br>${int(s.size)} bytes</div>`;
+}
+
+export async function nfts() {
+  const d = await api("/api/nfts");
+  const tiles = d.spores.map((s) => `<a class="nft-tile" href="#/spore/${s.id}">
+      <div class="nft-art">${sporePreview(s)}</div>
+      <div class="nft-meta"><b class="mono">${short(s.id, 8, 6)}</b><span>${esc(s.contentType)} · ${int(s.size)} B</span></div>
+    </a>`).join("");
+  const rows = d.clusters.map((c) => `<tr>
+      <td><b>${esc(c.name)}</b><span class="sub">${esc(c.description)}</span></td>
+      <td class="opt"><span class="mono" title="${c.id}">${short(c.id, 10, 8)}</span></td>
+      <td class="r">${int(c.spores)}</td>
+      <td class="opt">${addrLink(c.owner)}</td>
+      <td>${blockLink(c.blockNumber)}</td>
+    </tr>`);
+  const html = `
+    ${card({
+      title: "Spores",
+      count: d.spores.length,
+      aside: "Live spores on this chain, newest first",
+      body: d.spores.length ? `<div class="nft-grid">${tiles}</div>` : "",
+      empty: "No live spores. Mint one with <code>@ckb-ccc/spore</code> and it shows up here.",
+    })}
+    ${card({
+      title: "Clusters",
+      count: d.clusters.length,
+      flush: true,
+      aside: "Spore collections",
+      body: rows.length ? table([["Cluster"], ["Cluster ID", "opt"], ["Spores", "r"], ["Owner", "opt"], ["Created"]], rows) : "",
+      empty: "No clusters yet.",
+    })}`;
+  return { title: "NFTs", html };
+}
+
+export async function spore(id) {
+  const d = await api(`/api/spore/${id}`);
+  const s = d.spore;
+  const overview = detailCard({
+    title: "Spore",
+    hash: d.id,
+    small: true,
+    left: s ? [
+      ["Content Type", `<span class="mono">${esc(s.contentType)}</span>`],
+      ["Content Size", `${int(s.size)} Bytes`],
+      ["Cluster", s.clusterId ? `<span class="mono" title="${s.clusterId}">${short(s.clusterId, 10, 8)}</span>` : '<span class="muted">None</span>'],
+      ["Owner", addrLink(s.owner)],
+    ] : [["Status", '<span class="status bad">Melted</span>', "Destroyed by its owner; the capacity went back to them"]],
+    right: s ? [
+      ["Status", '<span class="status">Live</span>'],
+      ["Capacity", ckb(s.capacity), "The cell's capacity: it pays for the content bytes, 1 CKB per byte"],
+      ["Cell", outPointLink(s.outPoint)],
+      ["Spore ID", `<span class="mono" title="${d.id}">${short(d.id, 10, 8)}</span>`, "The spore's type script args, the same for its whole life"],
+    ] : [],
+  });
+  const rows = d.history.map((h) => `<tr>
+      <td>${h.event}</td>
+      <td>${txLink(h.hash, { head: 16, tail: 16 })}</td>
+      <td>${blockLink(h.blockNumber)}</td>
+      <td class="nowrap opt">${stamp(h.timestamp)}</td>
+    </tr>`);
+  const html = `${overview}
+    ${s ? card({ title: "Content", body: `<div class="spore-stage">${sporePreview(s, { large: true })}</div>` }) : ""}
+    ${card({ title: "History", count: d.history.length, flush: true, body: table([["Event"], ["Transaction Hash"], ["Height"], ["Time", "opt"]], rows) })}`;
+  return { title: `Spore ${short(d.id, 8, 6)}`, html };
+}
+
+// ---------------------------------------------------------------- Nervos DAO
+
+const epochText = (e) => `${int(e.number)}${e.length ? ` <small>${int(e.index)}/${int(e.length)}</small>` : ""}`;
+const days = (ms) => (ms >= 86400000 ? `${(ms / 86400000).toFixed(1)} days` : `${(ms / 3600000).toFixed(1)} hours`);
+
+export async function dao(q) {
+  const pageNo = Number(q.get("page")) || 1;
+  const size = Number(q.get("size")) || 20;
+  const d = await api(`/api/dao?tab=${encodeURIComponent(q.get("tab") ?? "")}&page=${pageNo}&size=${size}`);
+  const overview = detailCard({
+    title: "Nervos DAO",
+    left: [
+      [`${ckbIcon} Deposited`, ckb(d.deposited), "Capacity in deposit cells that haven't asked to withdraw"],
+      ["Withdrawing", ckb(d.withdrawing), "Deposits with a withdrawal requested (phase 1), waiting for the lock period"],
+      ["Compensation (estimated)", ckb(d.compensation), "What all these cells would earn if withdrawn now, from the AR in their deposit and current headers (RFC 0023)"],
+      ["Depositors", int(d.depositors)],
+    ],
+    right: [
+      ["Current Epoch", epochText(d.epoch)],
+      ["Lock Period", `180 epochs${d.lockPeriodMs ? ` <small>about ${days(d.lockPeriodMs)} on this devnet</small>` : ""}`, "A withdrawal completes after a whole number of 180-epoch cycles since the deposit"],
+      ["DAO Cells", int(d.cells)],
+      ["Transactions", int(d.transactions)],
+    ],
+  });
+  const tabBar = tabs([
+    { label: `Deposits (${int(d.cells)})`, href: "#/dao", current: d.tab === "deposits" },
+    { label: `Depositors (${int(d.depositors)})`, href: "#/dao?tab=depositors", current: d.tab === "depositors" },
+    { label: `Transactions (${int(d.transactions)})`, href: "#/dao?tab=transactions", current: d.tab === "transactions" },
+  ]);
+  let body;
+  if (d.tab === "deposits") {
+    const rows = d.list.items.map((c) => `<tr>
+        <td>${addrLink(c.address)}</td>
+        <td class="r">${ckb(c.capacity)}</td>
+        <td>${c.status === "withdrawing" ? '<span class="status wait">Withdrawing</span>' : '<span class="status">Deposited</span>'}</td>
+        <td>${blockLink(c.depositBlock)}</td>
+        <td class="r opt">${ckb(c.compensation)}</td>
+        <td>${c.unlock ? `epoch ${epochText(c.unlock)}<span class="sub">${c.unlock.number <= d.epoch.number ? "ready to withdraw" : `${int(c.unlock.number - d.epoch.number)} epochs to go`}</span>` : '<span class="muted">—</span>'}</td>
+      </tr>`);
+    body = rows.length ? table([["Owner"], ["Amount", "r"], ["Status"], ["Deposited At"], ["Compensation (est.)", "r opt"], ["Unlocks At"]], rows) : empty("No DAO deposits on this chain yet.");
+  } else if (d.tab === "depositors") {
+    const rows = d.list.items.map((x, i) => `<tr>
+        <td>${int((d.list.page - 1) * d.list.size + i + 1)}</td>
+        <td>${addrLink(x.address, { head: 20, tail: 12 })}</td>
+        <td class="r">${int(x.cells)}</td>
+        <td class="r">${ckb(x.deposited)}</td>
+        <td class="r opt">${ckb(x.compensation)}</td>
+      </tr>`);
+    body = rows.length ? table([["Rank"], ["Address"], ["Cells", "r"], ["In the DAO", "r"], ["Compensation (est.)", "r opt"]], rows) : empty("No depositors yet.");
+  } else {
+    const rows = d.list.items.map((x) => `<tr>
+        <td>${txLink(x.hash, { head: 20, tail: 20 })}</td>
+        <td>${x.action}</td>
+        <td>${blockLink(x.blockNumber)}</td>
+        <td class="nowrap opt">${stamp(x.timestamp)}</td>
+      </tr>`);
+    body = rows.length ? table([["Transaction Hash"], ["Action"], ["Height"], ["Time", "opt"]], rows) : empty("No DAO transactions yet.");
+  }
+  const foot = d.list.total ? `<div class="card-foot">${pager(d.list, "#/dao", d.tab === "deposits" ? "" : `tab=${d.tab}`)}</div>` : "";
+  return { title: "Nervos DAO", html: `${overview}<section class="card flush">${tabBar}${body}${foot}</section>` };
+}
+
 // ---------------------------------------------------------------- faucet
 
 // Laid out like the official CKB faucet (faucet.nervos.org): a dark hero with the rules,

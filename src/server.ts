@@ -43,6 +43,11 @@ export function startServer(explorer: Explorer, faucet: Faucet, port: number, rp
     [/^\/api\/address\/(ck[bt]1[0-9a-z]+)$/i, (m, url) => explorer.address(m[1], url.searchParams.get("tab") ?? "", ...pageArgs(url)), (m) => `Couldn't read address ${m[1]}.`],
     [/^\/api\/script\/(0x[0-9a-fA-F]{64})\/(type|data|data1|data2)$/, (m, url) => explorer.script(m[1], m[2], url.searchParams.get("tab") ?? "", ...pageArgs(url)), () => ""],
     [/^\/api\/scripts$/, () => explorer.scripts(), () => ""],
+    [/^\/api\/tokens$/, () => explorer.tokens(), () => ""],
+    [/^\/api\/token\/(0x[0-9a-fA-F]{64})$/, (m, url) => explorer.token(m[1], url.searchParams.get("tab") ?? "", ...pageArgs(url)), (m) => `No sUDT or xUDT token with type hash ${m[1]} on this devnet.`],
+    [/^\/api\/nfts$/, () => explorer.nfts(), () => ""],
+    [/^\/api\/spore\/(0x[0-9a-fA-F]{64})$/, (m) => explorer.spore(m[1]), (m) => `No spore ${m[1]} on this devnet.`],
+    [/^\/api\/dao$/, (_, url) => explorer.dao(url.searchParams.get("tab") ?? "", ...pageArgs(url)), () => "This devnet has no Nervos DAO script."],
     [/^\/api\/accounts$/, () => explorer.accounts(), () => ""],
     [/^\/api\/faucet$/, () => faucetStatus(), () => ""],
     [/^\/api\/search$/, (_, url) => explorer.search(url.searchParams.get("q") ?? ""), () => ""],
@@ -82,6 +87,21 @@ export function startServer(explorer: Explorer, faucet: Faucet, port: number, rp
         }
       }
       if (req.method !== "GET" && req.method !== "HEAD") return json(405, { error: "Method not allowed." });
+      // A spore's image, for <img>. Spore content is whatever its minter chose, so only image
+      // types are served, never sniffed, and sandboxed: an SVG with a script can't run here.
+      const content = url.pathname.match(/^\/api\/spore\/(0x[0-9a-fA-F]{64})\/content$/);
+      if (content) {
+        const c = await explorer.sporeContentOf(content[1]);
+        if (!c) return json(404, { error: "No such spore." });
+        if (!/^image\/(png|jpeg|gif|webp|svg\+xml|avif)$/.test(c.contentType)) return json(415, { error: `Not an image (${c.contentType}).` });
+        res.writeHead(200, {
+          "Content-Type": c.contentType,
+          "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+          "X-Content-Type-Options": "nosniff",
+          "Cache-Control": "no-cache",
+        });
+        return res.end(Buffer.from(c.bytes));
+      }
       if (url.pathname.startsWith("/api/")) {
         for (const [pattern, handler, notFound] of routes) {
           const m = url.pathname.match(pattern);

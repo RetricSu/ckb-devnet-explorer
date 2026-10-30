@@ -67,6 +67,25 @@ export function decodeByType(type: RpcScript | null, typeName: Resolved | null, 
   return null;
 }
 
+// A spore's raw content, for showing images and other non-text content.
+export function sporeContent(data: string): { contentType: string; bytes: Uint8Array; clusterId: string | null } | null {
+  try {
+    const spore = SporeData.decode(ccc.bytesFrom(data));
+    return { contentType: spore.contentType, bytes: ccc.bytesFrom(spore.content), clusterId: spore.clusterId ? ccc.hexFrom(spore.clusterId) : null };
+  } catch {
+    return null;
+  }
+}
+
+export function clusterData(data: string): { name: string; description: string } | null {
+  try {
+    const c = ClusterData.decode(ccc.bytesFrom(data));
+    return { name: c.name, description: c.description };
+  } catch {
+    return null;
+  }
+}
+
 export const dataHash = (data: string) => ccc.hashCkb(ccc.bytesFrom(data));
 
 export const scriptHash = (s: RpcScript) =>
