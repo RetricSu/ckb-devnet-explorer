@@ -168,7 +168,26 @@ export class Explorer {
       transactions: this.index.txs.slice(-10).reverse(),
       scripts,
       resets: this.index.resets,
+      charts: this.chartData(),
     };
+  }
+
+  // Two series for the home charts: seconds between each of the last 100 blocks, and how many
+  // transactions landed in each of up to 40 equal stretches of the chain's history.
+  private chartData() {
+    const blocks = this.index.blocks;
+    const last = blocks.slice(-101);
+    const blockTimes = last.slice(1).map((b, i) => ({ n: b.number, s: Math.max(0, b.timestamp - last[i].timestamp) / 1000 }));
+    // Genesis has timestamp 0, so the first real interval would be decades long.
+    if (blockTimes[0]?.n === 1) blockTimes.shift();
+    const buckets = Math.min(40, blocks.length);
+    const per = Math.ceil(blocks.length / buckets);
+    const activity = [];
+    for (let from = 0; from < blocks.length; from += per) {
+      const slice = blocks.slice(from, from + per);
+      activity.push({ from, to: from + slice.length - 1, txs: slice.reduce((a, b) => a + b.txs, 0), start: slice[0].timestamp, end: slice.at(-1)!.timestamp });
+    }
+    return { blockTimes, activity };
   }
 
   // A project script is only usable if the cell its deployment points at is still live.
@@ -583,21 +602,21 @@ function balanceChanges(inputs: CellView[], outputs: CellView[]) {
 // Cells we can't decode still say something when their type is one of your own scripts
 // (or a JS contract run by ckb_js_vm): the feed shows the contract's name.
 function scriptTag(r: Resolved | undefined): string | null {
-  if (r?.inner?.name) return r.inner.name;
-  if (r?.name && r.source !== "genesis") return r.name;
+  if (r?.inner?.name) return `${r.inner.name} cell`;
+  if (r?.name && r.source !== "genesis") return `${r.name} cell`;
   return null;
 }
 
 function tagOf(d: Decoded | null): string | null {
   if (!d) return null;
   switch (d.kind) {
-    case "code": return `code: ${d.name}`;
+    case "code": return `Deployed ${d.name}`;
     case "dao-deposit": return "DAO deposit";
-    case "dao-withdrawing": return "DAO withdrawal";
+    case "dao-withdrawing": return "DAO withdrawal request";
     case "udt": return d.standard;
-    case "spore": return "spore";
-    case "cluster": return "cluster";
+    case "spore": return "Spore";
+    case "cluster": return "Spore cluster";
     case "type-id": return "Type ID";
-    case "invalid": return `invalid ${d.standard}`;
+    case "invalid": return `Invalid ${d.standard}`;
   }
 }

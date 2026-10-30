@@ -29,7 +29,7 @@ page shows a toast when that happens.
 | `src/decode.ts` | Reads cell data by the standard its type script implements: Nervos DAO, sUDT, xUDT, Spore, Spore cluster, Type ID. |
 | `src/explorer.ts` | Builds the views: home, block and transaction lists, the tx pool, transaction (every input traced back to the cell it consumed, live/spent status of every output, balance changes, witnesses, fee, size, cycles, deps), block (miner, reward, size, cycles), address, script, and search. |
 | `src/server.ts` | `node:http` server: the JSON API below and the static files. |
-| `src/web/` | The page. Plain HTML/CSS/JS modules, no build step, fonts bundled in `fonts/`, so it works offline. `js/ui.js` has the shared pieces (detail card, label/value columns, pager, capacity bar, cell row, script name), `js/pages.js` one function per page, `js/app.js` the hash router, search, node status and live refresh. |
+| `src/web/` | The page. Plain HTML/CSS/JS modules, no build step, fonts bundled in `fonts/`, so it works offline. `js/ui.js` has the shared pieces (detail card, label/value columns, pager, capacity bar, cell row, script name), `js/pages.js` one function per page, `js/charts.js` the SVG charts, `js/app.js` the hash router, search, node status and live refresh. |
 | `src/cli.ts` | `serve` starts the server; with no command it prints recent transactions to the terminal. |
 | `bin/ckb-devnet-explorer.js` | Entry point for `npx` and global installs. Registers tsx and imports `src/cli.ts`, so there's still no build step. |
 
@@ -68,6 +68,11 @@ monospace hashes shortened with `...`, amounts with grey decimals, label/value d
 pager patterns, and its breakpoints (1440, 1200, 750 px). Its primary colour identifies the network (mainnet
 green `#00CC9B`, testnet purple `#9A2CEC`), so the devnet gets its own blue, `#346DFF`, which can't be mistaken
 for either. The logo is our own; the Nervos marks aren't used.
+
+Kinds, statuses and script sources are plain text ("Deployed", "sUDT", "genesis"), not pills or badges.
+The home dashboard has two charts in their dark panel: block time over the last 100 blocks (in place of their
+hash rate, which means nothing on a devnet's dummy proof of work) and transactions across the chain's history.
+They're drawn by `js/charts.js` as plain SVG, with hover tooltips and a hidden data table for screen readers.
 
 What the official explorer doesn't have keeps its own components inside that system: the capacity bar with
 one colour each for lock, type and data, decoded cell contents, balance changes, rejected-transaction

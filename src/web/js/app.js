@@ -1,5 +1,6 @@
 import { api, int } from "./ui.js";
 import * as pages from "./pages.js";
+import { mountCharts } from "./charts.js";
 
 const $ = (s) => document.querySelector(s);
 const page = $("#page");
@@ -37,6 +38,7 @@ async function render({ quiet = false } = {}) {
     // Keep expanded rows expanded across live refreshes.
     const open = [...page.querySelectorAll("details")].flatMap((d, i) => (d.open ? [i] : []));
     page.innerHTML = result.html;
+    mountCharts(page);
     if (quiet) open.forEach((i) => page.querySelectorAll("details")[i]?.setAttribute("open", ""));
     document.title = `${result.title} · ckb-devnet-explorer`;
     if (!quiet) { window.scrollTo(0, 0); page.focus({ preventScroll: true }); }

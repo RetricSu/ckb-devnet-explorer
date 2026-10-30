@@ -196,30 +196,25 @@ a.mono, .hashlink { font-family: var(--mono); }
 .table .lockname { display: block; font-size: 12px; color: var(--lock); }
 
 /* ---------- chips & badges ---------- */
-.chip { display: inline-flex; align-items: center; padding: 0 6px; height: 20px; border-radius: 3px; font: 500 12px var(--sans); white-space: nowrap; background: var(--input); color: var(--text); }
-.chip.k-code { background: #333; color: #fff; }
-.chip.k-udt { background: var(--type-tint); color: #8a5800; }
-.chip.k-spore, .chip.k-cluster { background: var(--data-tint); color: #4b2fd6; }
-.chip.k-dao-deposit, .chip.k-dao-withdrawing { background: var(--lock-tint); color: #136a55; }
-.chip.k-invalid { background: var(--danger-tint); color: var(--accent); }
-.chip.k-plain { background: none; color: var(--text); padding-left: 0; font: 14px var(--sans); }
-.tags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-.tag { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 3px; font: 12px var(--sans); background: var(--primary-tint); color: var(--primary-hover); white-space: nowrap; }
-.source { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 3px; font: 11px var(--sans); color: var(--muted); border: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
-.source.mine { color: var(--primary-hover); border-color: var(--secondary); background: var(--primary-tint); }
-.status { font-size: 14px; white-space: nowrap; }
-.status.ok { color: var(--primary); }
+/* Kinds, tags, sources and statuses are plain text, the way the CKB Explorer writes them. */
+.chip { font-weight: 500; color: var(--strong); white-space: nowrap; }
+.chip.k-invalid { color: var(--accent); }
+.tags { color: var(--text); }
+.tag + .tag::before { content: ", "; }
+.source { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.script-name ~ .source::before { content: "· "; }
+.status { white-space: nowrap; color: var(--text); }
 .status.wait { color: #c77f00; }
 .status.bad { color: var(--accent); }
-.status::before { content: "●"; margin-right: 5px; font-size: 10px; vertical-align: 1px; }
 .script-name { color: var(--strong); font-weight: 500; }
 a.script-name:hover { color: var(--primary); }
 .via { display: block; font-size: 12px; color: var(--muted); }
 
 /* ---------- home ---------- */
 .dash { display: grid; grid-template-columns: 1fr 1fr; border-radius: 4px 4px 0 0; overflow: hidden; color: #fff; }
-.dash-half { display: grid; grid-template-columns: 1fr 1fr; gap: 28px 24px; padding: 32px; background: #232323; }
-.dash-half + .dash-half { background: #484e4e; }
+.dash-half { display: grid; grid-template-columns: minmax(130px, 34%) minmax(0, 1fr); gap: 24px; padding: 28px 32px; background: #232323; }
+.dash-half + .dash-half { border-left: 1px solid #3a3a3a; }
+.dash-stats { display: flex; flex-direction: column; justify-content: center; gap: 28px; }
 .dash-item span { display: block; font-size: 14px; color: rgba(255, 255, 255, .85); }
 .dash-item b { display: block; margin-top: 4px; font: 500 26px/1.2 var(--sans); }
 .dash-item b small { font-size: 16px; font-weight: 400; margin-left: 2px; }
@@ -248,6 +243,25 @@ a.dash-link:hover b { color: var(--primary); }
 .latest .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .latest-foot { display: block; padding: 14px; text-align: center; font-weight: 500; }
 .latest-empty { padding: 28px 16px; color: var(--muted); }
+
+/* ---------- charts (on the dark dashboard) ---------- */
+.chart { position: relative; margin: 0; min-width: 0; display: flex; flex-direction: column; }
+.chart figcaption { font: 500 13px var(--sans); color: #fff; margin-bottom: 6px; }
+.chart-plot { flex: 1; min-height: 150px; height: 150px; }
+.chart svg { display: block; overflow: visible; }
+.chart .grid { stroke: rgba(255, 255, 255, .12); stroke-width: 1; }
+.chart .base { stroke: rgba(255, 255, 255, .35); stroke-width: 1; }
+.chart .tick { fill: rgba(255, 255, 255, .65); font: 11px var(--sans); font-variant-numeric: tabular-nums; }
+.chart .line { fill: none; stroke: var(--primary); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .area { fill: var(--primary); opacity: .1; }
+.chart .cross { stroke: rgba(255, 255, 255, .45); stroke-width: 1; }
+.chart .dot { fill: var(--primary); stroke: #232323; stroke-width: 2; }
+.chart .bar { fill: var(--primary); }
+.chart .bar.on { fill: #6f97ff; }
+.chart .hit { cursor: default; outline: none; }
+.chart rect[tabindex]:focus-visible { outline: 1px solid #fff; }
+.chart-tip { position: absolute; top: 20px; padding: 6px 10px; border-radius: 4px; background: #fff; color: var(--text); font-size: 12px; white-space: nowrap; box-shadow: 0 4px 12px rgba(0, 0, 0, .3); pointer-events: none; }
+.chart-tip b { color: var(--strong); font-weight: 500; }
 
 /* ---------- capacity bar (our signature) ---------- */
 .capbar { display: flex; height: 12px; border-radius: 2px; overflow: hidden; background: var(--free); }
@@ -295,8 +309,7 @@ a.dash-link:hover b { color: var(--primary); }
 .cell-cap .capbar { margin: 6px 0 0 auto; }
 .cell-state { font-size: 13px; }
 .cell-state .from { color: var(--muted); white-space: nowrap; text-align: right; }
-.live-dot { display: inline-flex; align-items: center; gap: 6px; color: var(--primary); white-space: nowrap; }
-.live-dot::before { content: ""; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--primary); }
+.live-dot { color: var(--text); white-space: nowrap; }
 .spent-link { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; color: var(--muted); }
 .spent-link b { font: 500 13px var(--mono); color: var(--primary); }
 .chev { width: 16px; height: 16px; color: #999; transition: transform .15s; }
@@ -356,6 +369,7 @@ details.hex code { display: block; margin-top: 6px; background: none; padding: 0
 @media (max-width: 1440px) { :root { --gutter: 100px; } }
 @media (max-width: 1200px) {
   :root { --gutter: 45px; }
+  .dash-half + .dash-half { border-left: 0; border-top: 1px solid #3a3a3a; }
   .kv { flex-direction: column; gap: 20px; }
   .kv-col + .kv-col { margin-left: 0; padding-left: 0; border-left: 0; }
   .grid-even, .dash { grid-template-columns: minmax(0, 1fr); }
@@ -394,7 +408,9 @@ details.hex code { display: block; margin-top: 6px; background: none; padding: 0
   .table .opt { display: none; }
   .tabs { padding: 0 16px; gap: 24px; }
   .tabs a { font-size: 16px; padding: 16px 0 12px; }
-  .dash-half { padding: 20px; gap: 18px; }
+  .dash-half { padding: 20px; gap: 18px; grid-template-columns: minmax(0, 1fr); }
+  .dash-stats { flex-direction: row; gap: 24px; }
+  .dash-stats > * { flex: 1; }
   .dash-item b { font-size: 20px; }
   .dash-strip > * { padding: 16px; }
   .dash-strip b { font-size: 17px; }

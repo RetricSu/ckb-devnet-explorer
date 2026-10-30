@@ -3,6 +3,7 @@ import {
   scriptName, short, sourceBadge, stamp, tags, txLink, when, outPointLink, copyBtn, txKind, table, progress, tabs, pager,
   delta, tokenDelta,
 } from "./ui.js";
+import { chartFigure } from "./charts.js";
 
 // Each page returns { title, html } and may set refresh: true for live updates.
 
@@ -16,27 +17,43 @@ export async function home() {
   const epochFraction = h.epoch.length ? (h.epoch.index + 1) / h.epoch.length : 0;
   const pool = h.pool.pending + h.pool.proposed;
 
-  // Their dashboard: a dark panel with the headline numbers, a white strip underneath.
+  // Their dashboard: a dark panel with headline numbers and a chart on each half, a white
+  // strip underneath. Block time instead of their hash rate (a devnet's PoW is a dummy).
+  const { blockTimes, activity } = h.charts;
   const dash = `<section aria-label="Chain stats">
     <div class="dash">
       <div class="dash-half">
-        <div class="dash-item"><span>Latest Block</span><b>${int(h.tip)}</b><em>${when(h.tipTimestamp)}</em></div>
-        <div class="dash-item"><span>Average Block Time</span><b>${h.blockTime != null ? `${(h.blockTime / 1000).toFixed(2)}<small>s</small>` : "—"}</b><em>median of the last 20 blocks</em></div>
-        <div class="dash-item"><span>Transactions</span><b>${int(h.transactionCount)}</b><em>not counting block rewards</em></div>
-        <div class="dash-item"><span>Known Scripts</span><b>${int(h.knownScripts.genesis + h.knownScripts.project)}</b><em>${h.knownScripts.genesis} genesis · ${h.knownScripts.project} from your projects</em></div>
+        <div class="dash-stats">
+          <div class="dash-item"><span>Latest Block</span><b>${int(h.tip)}</b><em>${when(h.tipTimestamp)}</em></div>
+          <div class="dash-item"><span>Average Block Time</span><b>${h.blockTime != null ? `${(h.blockTime / 1000).toFixed(2)}<small>s</small>` : "—"}</b><em>median of the last 20 blocks</em></div>
+        </div>
+        ${chartFigure({
+          kind: "line",
+          title: "Block time (s), last 100 blocks",
+          series: blockTimes,
+          label: ["Block", "Seconds since the previous block"],
+          table: blockTimes.map((p) => [`#${int(p.n)}`, p.s.toFixed(2)]),
+        })}
       </div>
       <div class="dash-half">
-        <div class="dash-item"><span>Epoch</span><b>${int(h.epoch.number)}</b><em>block ${int(h.epoch.index + 1)} of ${int(h.epoch.length)}</em>${progress(epochFraction, "Epoch progress")}</div>
-        <div class="dash-item"><span>Mining Difficulty</span><b>${int(h.difficulty)}</b><em>fixed: the devnet's proof of work is a dummy</em></div>
-        <div class="dash-item"><span>Chain</span><b>${esc(h.chain)}</b><em>your local OffCKB node</em></div>
-        <div class="dash-item"><span>Chain Resets Seen</span><b>${int(h.resets)}</b><em>offckb clean while the explorer ran</em></div>
+        <div class="dash-stats">
+          <div class="dash-item"><span>Transactions</span><b>${int(h.transactionCount)}</b><em>not counting block rewards</em></div>
+          <div class="dash-item"><span>Epoch</span><b>${int(h.epoch.number)}</b><em>block ${int(h.epoch.index + 1)} of ${int(h.epoch.length)}</em>${progress(epochFraction, "Epoch progress")}</div>
+        </div>
+        ${chartFigure({
+          kind: "bar",
+          title: "Transactions across the chain's history",
+          series: activity,
+          label: ["Blocks", "Transactions"],
+          table: activity.map((x) => [`${int(x.from)}–${int(x.to)}`, int(x.txs)]),
+        })}
       </div>
     </div>
     <div class="dash-strip">
       <a class="dash-link" href="#/transactions?tab=pending"><span>Tx Pool</span><b>${int(pool)}<em>${pool ? `${int(h.pool.pending)} pending · ${int(h.pool.proposed)} proposed` : "nothing waiting"}</em></b></a>
       <div><span>Min Fee Rate</span><b>${int(h.pool.minFeeRate)}<em>shannons/kB</em></b></div>
-      <a class="dash-link" href="#/blocks"><span>Blocks</span><b>${int(h.tip + 1)}<em>including genesis</em></b></a>
-      <div><span>Your Scripts</span><b>${int(h.scripts.filter((s) => s.deployed).length)} / ${int(h.scripts.length)}<em>deployed on this chain</em></b></div>
+      <div><span>Known Scripts</span><b>${int(h.knownScripts.genesis + h.knownScripts.project)}<em>${h.knownScripts.genesis} genesis · ${h.knownScripts.project} yours</em></b></div>
+      <div><span>Your Scripts Deployed</span><b>${int(h.scripts.filter((s) => s.deployed).length)} / ${int(h.scripts.length)}<em>on this chain</em></b></div>
     </div>
   </section>`;
 
