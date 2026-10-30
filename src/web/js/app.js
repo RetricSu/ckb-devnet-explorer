@@ -56,7 +56,9 @@ async function render({ quiet = false } = {}) {
     m.classList.toggle("current", !!m.querySelector("a[aria-current]"));
     if (!quiet) closeMenu(m); // a live refresh must not shut a menu someone just opened
   });
-  if (!quiet) page.innerHTML = `<p class="loading">Loading…</p>`;
+  if (!quiet) page.innerHTML = `<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span><span class="sr-only">Loading</span></div>`;
+  $(".topbar").classList.remove("menu-open");
+  $("#menu")?.setAttribute("aria-expanded", "false");
   try {
     if (!route) throw new Error("There's no page at this address. Use the search box, or go back home.");
     const result = await route[1](path.match(route[0]), query);
@@ -74,7 +76,7 @@ async function render({ quiet = false } = {}) {
     if (result.mount && !quiet) unmount = result.mount(page) ?? null;
   } catch (err) {
     if (id !== renderId) return;
-    page.innerHTML = `<div class="notice error"><p>${err.message.replace(/[<>&]/g, "")}</p></div><p><a href="#/">← Home</a></p>`;
+    page.innerHTML = notFound(err.message);
     document.title = "Not found · ckb-devnet-explorer";
   }
 }
@@ -158,20 +160,54 @@ paintToggle();
 
 // ---- search ----
 
-$("#search").addEventListener("submit", async (e) => {
+// Every search box (the header, the home page, the not-found page) works the same way.
+document.addEventListener("submit", async (e) => {
+  const form = e.target.closest("#search, form[data-search]");
+  if (!form) return;
   e.preventDefault();
-  const q = $("#q").value.trim();
+  const input = form.querySelector("input");
+  const q = input.value.trim();
   if (!q) return;
   try {
     const res = await api(`/api/search?q=${encodeURIComponent(q)}`);
     if (res.route) {
-      $("#q").value = "";
-      $("#q").blur();
+      input.value = "";
+      input.blur();
       if (location.hash === res.route) render(); else location.hash = res.route;
-    } else toast(res.error);
+    } else if (form.id === "search") toast(res.error);
+    else page.innerHTML = notFound(res.error, q);
   } catch (err) {
     toast(err.message);
   }
+});
+
+// Like the CKB Explorer's "Sorry, I can't find it": say why, and offer the search again.
+function notFound(message, query = "") {
+  const offline = /reach the devnet/i.test(message);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  document.title = `${offline ? "Devnet offline" : "Not found"} · ckb-devnet-explorer`;
+  return `<section class="card empty-state">
+    <svg class="empty-art" viewBox="0 0 160 96" aria-hidden="true">
+      <rect x="8" y="30" width="144" height="36" rx="6" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="6 5"/>
+      <rect x="18" y="40" width="16" height="16" rx="3" class="e1"/><rect x="40" y="40" width="30" height="16" rx="3" class="e2"/><rect x="76" y="40" width="22" height="16" rx="3" class="e3"/>
+      <text x="124" y="57" text-anchor="middle" class="e4">?</text>
+    </svg>
+    <h1>${offline ? "The devnet isn't running" : "Sorry, we can't find it"}</h1>
+    <p>${esc(message)}</p>
+    ${offline ? "<p><code>offckb node</code> starts it; this page reconnects on its own.</p>" : `<form class="big-search" data-search role="search">
+      <label class="sr-only" for="q-again">Search again</label>
+      <input id="q-again" value="${esc(query)}" placeholder="Block / Transaction / Address / Script Hash / Token / Spore ID" autocomplete="off" spellcheck="false">
+      <button class="btn primary" type="submit">Search</button>
+    </form>`}
+    <p><a href="#/">Back to home</a></p>
+  </section>`;
+}
+
+// The phone menu: a button that opens the whole nav as a panel under the header.
+$("#menu").addEventListener("click", () => {
+  const open = !$(".topbar").classList.contains("menu-open");
+  $(".topbar").classList.toggle("menu-open", open);
+  $("#menu").setAttribute("aria-expanded", String(open));
 });
 
 document.addEventListener("keydown", (e) => {

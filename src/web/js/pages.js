@@ -58,6 +58,14 @@ export async function home() {
     </li>`).join("");
 
   const html = `
+    <section class="home-search">
+      <h1>CKB Devnet Explorer</h1>
+      <form class="big-search" data-search role="search">
+        <label class="sr-only" for="q-home">Search the devnet</label>
+        <input id="q-home" placeholder="Block / Transaction / Address / Script Hash / Token / Spore ID" autocomplete="off" spellcheck="false">
+        <button class="btn primary" type="submit">Search</button>
+      </form>
+    </section>
     ${dash}
     <div class="grid-even">
       <section class="latest">
@@ -231,6 +239,25 @@ export async function transaction(hash) {
         ["Status", inBlock ? `${statusText(tx.status)} <small>${plural(tx.confirmations, "Confirmation")}</small>` : statusText(tx.status)],
         ["Cycles", tx.cycles != null ? int(tx.cycles) : "—", "CKB-VM cycles used by all the scripts this transaction ran"],
       ],
+      extra: `<div class="tx-toggles">
+          <button type="button" class="link-toggle" data-panel="params" aria-expanded="false">Parameters</button>
+          <button type="button" class="link-toggle" data-panel="raw" aria-expanded="false">Raw</button>
+        </div>
+        <div class="tx-panel" data-panel="params" hidden>
+          <h3>Cell Deps <span class="count">(${tx.cellDeps.length})</span><span class="aside">code this transaction reads without consuming it</span></h3>
+          ${tx.cellDeps.length ? table([["Out Point"], ["Dep Type"], ["Provides"]], deps) : '<p class="muted">None.</p>'}
+          <h3>Header Deps <span class="count">(${tx.headerDeps.length})</span><span class="aside">block headers its scripts can read</span></h3>
+          ${tx.headerDeps.length ? table([["Block"], ["Hash"]], tx.headerDeps.map((h) => `<tr>
+            <td>${h.number != null ? blockLink(h.number) : "?"}</td>
+            <td><a class="mono" href="#/block/${h.hash}" title="${h.hash}">${short(h.hash)}</a></td>
+          </tr>`)) : '<p class="muted">None. The Nervos DAO uses these to check when a deposit was made.</p>'}
+          <h3>Witnesses <span class="count">(${tx.witnesses.length})</span><span class="aside">signatures and other proof, one per input group</span></h3>
+          ${tx.witnesses.length ? table([["#"], ["Size", "r"], ["Layout", "opt"], [""]], witnesses) : '<p class="muted">None.</p>'}
+        </div>
+        <div class="tx-panel" data-panel="raw" hidden>
+          <div class="raw-actions">${actions}</div>
+          <pre class="json" data-raw="/api/tx/${tx.hash}/raw">Loading…</pre>
+        </div>`,
     })}
     ${inBlock ? "" : `<div class="notice warn"><p><b>Not in a block yet.</b> The node accepted it into the tx pool. It's committed once a block includes it, usually within a few blocks on a devnet.</p></div>`}
     ${changes.length ? card({
@@ -241,34 +268,27 @@ export async function transaction(hash) {
     }) : ""}
     ${cellCard("Input", tx.inputs, { role: "input", openAll: tx.inputs.length + tx.outputs.length <= 3 })}
     ${cellCard("Output", tx.outputs, { role: "output", openAll: tx.inputs.length + tx.outputs.length <= 3 })}
-    <div class="grid-even">
-      ${card({
-        title: "Cell Deps",
-        count: tx.cellDeps.length,
-        flush: true,
-        body: tx.cellDeps.length ? table([["Out Point"], ["Dep Type"], ["Provides"]], deps) : "",
-        empty: "None.",
-      })}
-      ${card({
-        title: "Header Deps",
-        count: tx.headerDeps.length,
-        flush: true,
-        body: tx.headerDeps.length ? table([["Block"], ["Hash"]], tx.headerDeps.map((h) => `<tr>
-          <td>${h.number != null ? blockLink(h.number) : "?"}</td>
-          <td><a class="mono" href="#/block/${h.hash}" title="${h.hash}">${short(h.hash)}</a></td>
-        </tr>`)) : "",
-        empty: "None. The Nervos DAO uses these to check when a deposit was made.",
-      })}
-    </div>
-    ${card({
-      title: "Witnesses",
-      count: tx.witnesses.length,
-      flush: true,
-      aside: "Signatures and other proof, one per input group",
-      body: tx.witnesses.length ? table([["#"], ["Size", "r"], ["Layout", "opt"], [""]], witnesses) : "",
-      empty: "None.",
-    })}`;
-  return { title: `Transaction ${short(tx.hash)}`, html, refresh: !inBlock };
+`;
+
+  // The two toggles open one panel at a time; Raw fetches the JSON the first time.
+  const mount = (root) => {
+    const buttons = [...root.querySelectorAll(".link-toggle")];
+    buttons.forEach((btn) => btn.addEventListener("click", async () => {
+      const open = btn.getAttribute("aria-expanded") !== "true";
+      buttons.forEach((x) => x.setAttribute("aria-expanded", "false"));
+      root.querySelectorAll(".tx-panel").forEach((x) => (x.hidden = true));
+      if (!open) return;
+      btn.setAttribute("aria-expanded", "true");
+      const panel = root.querySelector(`.tx-panel[data-panel="${btn.dataset.panel}"]`);
+      panel.hidden = false;
+      const pre = panel.querySelector("pre[data-raw]");
+      if (pre && !pre.dataset.loaded) {
+        pre.dataset.loaded = "1";
+        try { pre.textContent = JSON.stringify(await api(pre.dataset.raw), null, 2); } catch (err) { pre.textContent = err.message; }
+      }
+    }));
+  };
+  return { title: `Transaction ${short(tx.hash)}`, html, refresh: !inBlock, mount };
 }
 
 // What the node's reject types mean (ckb tx-pool `Reject`), in plain words.

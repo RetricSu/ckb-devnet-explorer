@@ -274,7 +274,47 @@ code { font: 13px var(--mono); background: var(--input); padding: 1px 5px; borde
 
 /* ---------- page & footer ---------- */
 .page { padding: 24px var(--gutter) 64px; outline: none; min-height: calc(100vh - 64px - 160px); }
-.loading { color: var(--muted); padding: 40px 0; }
+.loading { display: grid; place-items: center; padding: 80px 0; }
+.spinner { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--border); border-top-color: var(--primary); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Their home search: a title, then a wide white field and a Search button. */
+.home-search { display: flex; align-items: center; gap: 20px; margin: 0 0 20px; }
+.home-search h1 { margin: 0; font: 500 22px var(--sans); color: var(--strong); white-space: nowrap; }
+.big-search { display: flex; flex: 1; min-width: 0; height: 44px; border-radius: 4px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+.big-search input { flex: 1; min-width: 0; padding: 0 16px; border: 0; background: none; color: var(--strong); font: 15px var(--sans); }
+.big-search input:focus { outline: none; }
+.big-search:focus-within { outline: 2px solid var(--primary); }
+.big-search .btn { height: 100%; border-radius: 0; padding: 0 22px; font-size: 15px; }
+
+/* Their not-found page. */
+.empty-state { display: grid; justify-items: center; gap: 4px; padding: 48px 40px; text-align: center; }
+.empty-state h1 { margin: 16px 0 4px; font: 500 24px var(--sans); color: var(--strong); }
+.empty-state p { margin: 4px 0; max-width: 620px; color: var(--muted); overflow-wrap: anywhere; }
+.empty-state .big-search { width: 100%; max-width: 620px; margin: 16px 0 8px; border: 1px solid var(--border); box-shadow: none; }
+.empty-art { width: 160px; height: 96px; color: var(--decimal); }
+.empty-art .e1 { fill: var(--head); opacity: .5; }
+.empty-art .e2 { fill: var(--lock); opacity: .5; }
+.empty-art .e3 { fill: var(--type); opacity: .5; }
+.empty-art .e4 { fill: var(--primary); font: 700 26px var(--sans); }
+
+/* The phone menu button (shown below 900px). */
+.menu-toggle { display: none; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 4px; background: none; color: #fff; cursor: pointer; }
+.menu-toggle svg { width: 22px; height: 22px; }
+
+/* The transaction header's "Parameters" and "Raw" toggles. */
+.tx-toggles { display: flex; gap: 20px; padding: 0 0 20px; }
+.link-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: var(--primary); font: 500 16px var(--sans); cursor: pointer; }
+.link-toggle::after { content: "▾"; font-size: 14px; line-height: 1; transition: transform .15s; }
+.link-toggle[aria-expanded="true"]::after { transform: rotate(180deg); }
+.tx-panel { padding: 4px 0 24px; border-top: 1px solid var(--border); }
+.tx-panel h3 { display: flex; align-items: baseline; gap: 8px; margin: 20px 0 6px; font: 500 16px var(--sans); color: var(--strong); }
+.tx-panel h3 .count { color: var(--muted); font-weight: 400; }
+.tx-panel h3 .aside { margin-left: auto; font: 13px var(--sans); color: var(--muted); }
+.tx-panel .table th:first-child, .tx-panel .table td:first-child { padding-left: 0; }
+.tx-panel .table th:last-child, .tx-panel .table td:last-child { padding-right: 0; }
+.tx-panel .table th { height: 44px; font-size: 14px; }
+.raw-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 0 8px; }
 
 .footer { background: var(--header); color: rgba(255, 255, 255, .7); padding: 40px var(--gutter) 24px; }
 .footer-cols { display: flex; flex-wrap: wrap; gap: 32px 96px; }
@@ -631,14 +671,26 @@ details.hex code { display: block; margin-top: 6px; background: none; padding: 0
   .search { order: 3; flex-basis: 100%; max-width: none; }
   .search kbd { display: none; }
   .logo img { width: 95px; height: 25px; }
-  .nav { order: 4; flex-basis: 100%; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; }
-  .nav a, .nav-menu > button { padding: 10px 12px; }
-  /* On narrow screens the menus fold open into the scrolling nav row. */
-  .nav-menu > button { display: none; }
-  .nav-sub { position: static; display: flex !important; min-width: 0; padding: 0; background: none; box-shadow: none; }
-  .nav-sub a { padding: 10px 12px; color: rgba(255, 255, 255, .7); font-weight: 500; border-radius: 0; border-top: 3px solid transparent; border-bottom: 3px solid transparent; white-space: nowrap; }
+  .menu-toggle { display: grid; order: 2; margin-left: 4px; }
+  .theme-toggle, .network { order: 1; }
+  .nav-menu > button { text-align: left; }
+  .nav { order: 4; flex-basis: 100%; display: none; flex-direction: column; align-items: stretch; margin: 0 calc(-1 * var(--gutter)); padding: 4px var(--gutter) 12px; border-top: 1px solid #222; }
+  .topbar.menu-open .nav { display: flex; }
+  .nav a, .nav-menu > button { padding: 12px 0; border: 0; }
+  .nav-menu { flex-direction: column; }
+  /* On phones the menus are listed open inside the menu panel. */
+  .nav-menu > button { display: block; color: rgba(255, 255, 255, .45); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; padding: 14px 0 4px; cursor: default; }
+  .nav-menu > button::after { display: none; }
+  .nav-sub { position: static; display: flex !important; flex-direction: column; min-width: 0; padding: 0 0 0 12px; background: none; box-shadow: none; }
+  .nav-sub a { padding: 10px 0; color: rgba(255, 255, 255, .75); font-weight: 500; border: 0; border-radius: 0; white-space: nowrap; }
   .nav-sub a:hover { background: none; color: #fff; }
-  .nav-sub a[aria-current] { color: #fff; border-bottom-color: var(--primary); }
+  .nav a[aria-current], .nav-sub a[aria-current] { color: #fff; border: 0; box-shadow: inset 3px 0 0 var(--primary); padding-left: 10px; }
+  .home-search { flex-direction: column; align-items: stretch; gap: 12px; }
+}
+@media (max-width: 480px) {
+  /* The network label already says "CKB Devnet", so the logo's label makes room for the menu. */
+  .logo-label { display: none; }
+  .topbar-inner { gap: 10px 12px; }
 }
 @media (max-width: 750px) {
   :root { --gutter: 16px; }
@@ -699,6 +751,7 @@ details.hex code { display: block; margin-top: 6px; background: none; padding: 0
   .footer-cols { gap: 24px 48px; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2.4s; }
   .slide { transition: none; transform: none; }
   *, *::before { animation: none !important; transition: none !important; }
 }

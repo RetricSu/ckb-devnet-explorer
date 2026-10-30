@@ -18,7 +18,10 @@
         <img src="/brand/ckb-logo.png" width="114" height="30" alt="">
         <span class="logo-label">Devnet<br>Explorer</span>
       </a>
-      <nav class="nav" aria-label="Sections">
+      <button class="menu-toggle" id="menu" type="button" aria-expanded="false" aria-controls="nav" aria-label="Menu">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <nav class="nav" id="nav" aria-label="Sections">
         <a href="#/" data-section="home">Home</a>
         <div class="nav-menu">
           <button type="button" aria-expanded="false" aria-haspopup="true">Blockchain</button>
@@ -52,7 +55,7 @@
       <form id="search" class="search" role="search">
         <label class="sr-only" for="q">Search the devnet</label>
         <svg class="search-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        <input id="q" name="q" placeholder="Block / Transaction / Address / Script Hash" autocomplete="off" spellcheck="false">
+        <input id="q" name="q" placeholder="Block / Transaction / Address / Script Hash / Token / Spore ID" autocomplete="off" spellcheck="false">
         <kbd aria-hidden="true">Ctrl+K</kbd>
       </form>
       <button class="theme-toggle" id="theme" type="button" aria-label="Switch to dark mode" title="Switch to dark mode"></button>

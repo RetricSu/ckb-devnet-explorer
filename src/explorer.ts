@@ -101,8 +101,13 @@ export class Explorer {
       this.blocks.clear();
       this.tags.clear();
       this.txs.clear();
+      this.scriptHashes.clear();
     });
   }
+
+  // Every lock and type script seen on the chain, by script hash, so search can take a lock
+  // hash or type hash as the CKB Explorer does. Filled while the index reads each block.
+  private scriptHashes = new Map<string, { script: RpcScript; role: "lock" | "type" }>();
 
   async tip() {
     await this.index.sync();
@@ -148,6 +153,13 @@ export class Explorer {
   }
 
   private summarize(b: FullBlock): { block: BlockSummary; txs: TxSummary[] } {
+    for (const t of b.transactions)
+      for (const o of t.outputs)
+        for (const [role, sc] of [["lock", o.lock], ["type", o.type]] as const) {
+          if (!sc) continue;
+          const h = scriptHash(sc);
+          if (!this.scriptHashes.has(h)) this.scriptHashes.set(h, { script: rpcScript(sc), role });
+        }
     const number = num(b.header.number);
     const timestamp = num(b.header.timestamp);
     const consumed = b.transactions.slice(1).reduce((a, t) => a + t.inputs.length, 0);
@@ -928,9 +940,25 @@ export class Explorer {
       if (block) return { route: `#/block/${h}` };
       const script = this.resolver.all().find((s) => s.codeHash === h);
       if (script) return { route: `#/script/${h}/${script.hashType}` };
-      return { error: `${short(h)} isn't a transaction, a block or a known script code hash on this devnet.` };
+      // A script hash: a lock goes to its address; a type to its token, or its script page.
+      const seen = this.scriptHashes.get(h);
+      if (seen?.role === "lock") return { route: `#/address/${addressOf(seen.script)}` };
+      if (seen?.role === "type") {
+        if ((await this.udtTokens()).has(h)) return { route: `#/token/${h}` };
+        return { route: `#/script/${seen.script.code_hash}/${seen.script.hash_type}?tab=type` };
+      }
+      // A spore id or cluster id is a type script's args.
+      for (const name of ["spore", "spore_cluster"] as const) {
+        const known = this.resolver.all().filter((k) => k.name === name);
+        for (const k of known) {
+          const txs = await rpc<{ objects: unknown[] }>(this.url, "get_transactions", [
+            { script: { code_hash: k.codeHash, hash_type: k.hashType, args: h }, script_type: "type", script_search_mode: "exact" }, "asc", "0x1"]);
+          if (txs.objects.length) return { route: name === "spore" ? `#/spore/${h}` : "#/nfts" };
+        }
+      }
+      return { error: `Nothing on this devnet matches ${short(h)}: it isn't a transaction, block, script, script hash, token, spore or cluster.` };
     }
-    return { error: "Search takes a transaction hash, block number or hash, address, or script code hash." };
+    return { error: "Search takes a block number, a transaction or block hash, an address, a script or code hash, a token type hash, or a spore or cluster id." };
   }
 
   // ---- shared ---------------------------------------------------------------------------
